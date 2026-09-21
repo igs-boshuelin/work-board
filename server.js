@@ -1190,6 +1190,49 @@ function findTask( id ) {
 
 function publicTask( t ) { return t; }
 
+// ── CSV ─────────────────────────────────────────────────────────────────────
+
+// 一律加引號，不逐種判斷 —— 欄位裡有逗號／引號／換行時都得包，與其逐種判斷不如全包。
+// ⚠️ 引號只擋「欄位被切錯位」。開頭是 = + - @ 的字串，Excel 照樣會當公式去算
+//    （加引號**沒有**用，要擋得在前面塞一個單引號）。這裡刻意不擋：
+//    內部看板、填的人跟看的人是同一批，為了這個去改人家打的字不划算。見 README §8.5。
+function csvCell( v ) {
+    // 欄位裡的換行也一併轉成 CRLF（明細常常是多行的）。混著 LF 的話，
+    // Excel 有些版本會把整格擠成一行看不出斷行。包在引號裡所以是合法的。
+    const s = ( v === null || v === undefined ? '' : String( v ) ).replace( /\r\n|[\r\n]/g, '\r\n' );
+    return '"' + s.replace( /"/g, '""' ) + '"';
+}
+
+// ISO（UTC）→ 本機 "YYYY-MM-DD HH:MM"。⛔ 不要直接吐 ISO —— 試算表裡差 8 小時，
+//    而且「完成時間」差 8 小時剛好會跨日，跟排程表對不起來。
+function csvTime( iso ) {
+    if ( !iso ) return '';
+    const d = new Date( iso );
+    const p = n => String( n ).padStart( 2, '0' );
+    return `${ d.getFullYear() }-${ p( d.getMonth() + 1 ) }-${ p( d.getDate() ) } `
+        + `${ p( d.getHours() ) }:${ p( d.getMinutes() ) }`;
+}
+
+// 欄位順序＝匯出檔的欄位順序。⚠️ 有人拿去接別的表單之後，新欄位**往後加**，不要插中間。
+const CSV_COLUMNS = [
+    [ '單號', t => t.id ],
+    [ '標題', t => t.title ],
+    [ '專案', t => t.project ],
+    [ '提出者', t => t.requester ],
+    [ '負責人', t => t.owner ? memberName( t.owner ) : '' ],
+    [ '狀態', t => STATUS_LABEL[ t.status ] || t.status ],
+    [ '估時(h)', t => t.estimate === null || t.estimate === undefined ? '' : t.estimate ],
+    [ '已花(h)', t => t.spentMin ? +( t.spentMin / 60 ).toFixed( 2 ) : '' ],
+    [ '希望完成', t => t.wishDate ? t.wishDate + ( t.wishTime ? ' ' + t.wishTime : '' ) : '' ],
+    [ '指定完成', t => t.due ],
+    [ '推估完成', t => t.projectedDue ],
+    [ '建立', t => csvTime( t.createdAt ) ],
+    [ '完成', t => csvTime( t.doneAt ) ],
+    [ '備註', t => t.note ],
+    [ '明細', t => t.detail ],
+    [ '留言數', t => ( t.comments || [] ).length ],
+];
+
 // 訂閱資料裡的 chat id / user id 不要吐給瀏覽器 —— 任何人都查得到這幾支端點
 function publicSub( s ) {
     return {
@@ -1460,6 +1503,35 @@ async function handleApi( req, res, urlPath, query ) {
             dueSoonMin: DUE_SOON_MIN,
             pendingNotify: pendingChanges.size,
         } );
+    }
+
+    // ── 匯出 CSV ─────────────────────────────────────────────────────────────
+    //
+    // 給試算表、以及「另一份表單」直接抓。`?owner=<人員id>` 只出那個人的，
+    // `?owner=`（空值）＝ 只出還沒指定負責人的；不帶這個參數就是全部。
+    //
+    // ⚠️ 跟 GET /api/tasks 一樣**不擋登入** —— 內網用，而且擋了外部表單就抓不到。
+    //    哪天要對外開放，這兩支必須一起加權限，⛔ 不要只擋其中一支。
+    if ( urlPath === '/api/export.csv' && method === 'GET' ) {
+        const owner = query && query.get( 'owner' );
+        let list = [ ...data.tasks ].sort( ( a, b ) => a.order - b.order );
+        if ( owner !== null ) list = list.filter( t => ( t.owner || '' ) === owner );
+
+        // BOM 是給 Excel 的 —— 少了它中文會變亂碼，⛔ 不要「順手清掉怪字元」。
+        // 換行用 CRLF，RFC 4180 是這樣定的。
+        const body = '\uFEFF' + [
+            CSV_COLUMNS.map( c => csvCell( c[ 0 ] ) ).join( ',' ),
+            ...list.map( t => CSV_COLUMNS.map( c => csvCell( c[ 1 ]( t ) ) ).join( ',' ) ),
+        ].join( '\r\n' ) + '\r\n';
+
+        const stamp = new Date().toISOString().slice( 0, 10 );
+        res.writeHead( 200, {
+            'Content-Type': 'text/csv; charset=utf-8',
+            // 檔名刻意全 ASCII —— 中文檔名要 RFC 5987 編碼，各家瀏覽器行為不一致，不值得。
+            'Content-Disposition': `attachment; filename="work-board-${ stamp }.csv"`,
+            'Cache-Control': 'no-store',
+        } );
+        return res.end( body );
     }
 
     if ( urlPath === '/api/tasks' && method === 'GET' ) {

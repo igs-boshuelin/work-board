@@ -77,6 +77,10 @@
   <section class="panel filters">
     <div class="filter-group">
       <label class="field inline">
+        <span>搜尋</span>
+        <input type="search" id="filter-q" placeholder="標題／內容／留言／單號" autocomplete="off">
+      </label>
+      <label class="field inline">
         <span>專案</span>
         <select id="filter-project"><option value="">全部</option></select>
       </label>
@@ -85,6 +89,7 @@
         <select id="filter-requester"><option value="">全部</option></select>
       </label>
       <label class="check"><input type="checkbox" id="filter-done"> 顯示已完成</label>
+      <a id="export-csv" class="csv-link" href="/api/export.csv" download>⬇ CSV</a>
     </div>
     <div id="stats" class="stats"></div>
   </section>
@@ -206,6 +211,17 @@
     <section class="help-news">
       <h3>🆕 最近更新</h3>
       <ul>
+        <li>
+          <b>多了搜尋框，跟一個「⬇ CSV」下載鍵</b><span class="help-ver">09/21</span><br>
+          <b>搜尋框（篩選列最左邊）</b>會比對<b>標題、內容、備註、專案、提出者、留言</b>，
+          連 <code>t0012</code> 這種<b>單號</b>也可以直接貼進去找。邊打邊篩，不用按 Enter。<br>
+          ⚠️ 搜尋時會<b>一併找出已完成的單</b>，就算「顯示已完成」沒有勾 ——
+          不然打了關鍵字卻一片空白，會以為那張單根本不存在。<br>
+          ⚠️ 搜尋<b>只看眼前這個看板</b>（跟專案／提出者兩個篩選同一套規則）。
+          別人板上有符合的，下面會出現一行「🔎 其他看板還有 N 筆」提醒你切過去。<br>
+          <b>⬇ CSV</b> 下載的是<b>這個看板的全部工單</b>，<b>不受上面的篩選與搜尋影響</b>
+          （滑鼠移上去會寫清楚這次會拿到什麼）。用 Excel 開中文不會亂碼。
+        </li>
         <li>
           <b>排程表不再自動排加班</b><span class="help-ver">09/21</span><br>
           以前正常工時塞不下會自動往 <b>18:30–22:00</b> 塞，等於看板預設你會加班。

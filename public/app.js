@@ -547,7 +547,16 @@ function currentFilter() {
         project: $( '#filter-project' ).value,
         requester: $( '#filter-requester' ).value,
         showDone: $( '#filter-done' ).checked,
+        q: $( '#filter-q' ).value.trim().toLowerCase(),
     };
+}
+
+// 搜尋比對的範圍。⚠️ 連 id 一起比是刻意的 —— TG 通知跟留言裡都是寫 t0012 這種單號，
+//    貼進來要找得到。留言也比，因為「那件事後來怎麼了」常常只寫在留言裡。
+function taskHaystack( t ) {
+    return [ t.id, t.title, t.detail, t.note, t.project, t.requester ]
+        .concat( ( t.comments || [] ).map( c => c.text ) )
+        .join( '\n' ).toLowerCase();
 }
 
 function visibleTasks() {
@@ -555,7 +564,10 @@ function visibleTasks() {
     return scopeTasks().filter( t => {
         if ( f.project && t.project !== f.project ) return false;
         if ( f.requester && t.requester !== f.requester ) return false;
-        if ( !f.showDone && t.status === 'done' ) return false;
+        // ⚠️ 有打關鍵字時**刻意忽略**「顯示已完成」—— 找得到才是搜尋的意義。
+        //    不然打了字卻一片空白，人只會以為這張單根本不存在。
+        if ( !f.q && !f.showDone && t.status === 'done' ) return false;
+        if ( f.q && !taskHaystack( t ).includes( f.q ) ) return false;
         return true;
     } );
 }
@@ -568,7 +580,7 @@ function renderBoard() {
     if ( view.kind === 'member' ) renderToday();
 
     if ( !list.length ) {
-        board.innerHTML = '<div class="panel empty">目前沒有符合條件的項目。</div>';
+        board.innerHTML = elsewhereHint() + '<div class="panel empty">目前沒有符合條件的項目。</div>';
         return;
     }
 
@@ -581,8 +593,40 @@ function renderBoard() {
             ${ group.map( cardHTML ).join( '' ) }
         </section>`;
     }
-    board.innerHTML = html;
+    board.innerHTML = elsewhereHint() + html;
     bindCards();
+}
+
+// 搜尋只看得到「眼前這個看板」（跟專案／提出者兩個篩選同一套規則）。
+// ⚠️ 少了這行提示的話，在 A 的看板搜不到就會以為全公司都沒有這張單，
+//    其實只是它在 B 那邊 —— 那種找不到比沒有搜尋更糟。
+function elsewhereHint() {
+    const f = currentFilter();
+    if ( !f.q ) return '';
+    const here = new Set();
+    scopeTasks().forEach( t => here.add( t.id ) );
+    const n = tasks.filter( t => !here.has( t.id ) && taskHaystack( t ).includes( f.q ) ).length;
+    if ( !n ) return '';
+    return `<div class="panel hint-line">🔎 其他看板還有 <b>${ n }</b> 筆符合「${ esc( f.q ) }」——
+        回人員頁（左上角 ←）切過去看。</div>`;
+}
+
+// 「⬇ CSV」下載哪些單。⚠️ 標題要講清楚拿到的是什麼 ——
+//    以為匯出的是眼前篩選後的結果、實際拿到全部，是會出事的那種誤會。
+function syncExportLink() {
+    const a = $( '#export-csv' );
+    if ( view.kind === 'member' ) {
+        a.href = '/api/export.csv?owner=' + encodeURIComponent( view.owner );
+        a.title = `下載 ${ memberName( view.owner ) } 的全部工單（CSV，不受上面的篩選影響）`;
+    } else if ( view.kind === 'open' ) {
+        a.href = '/api/export.csv?owner=';
+        a.title = '下載「還不確定找誰」的全部工單（CSV）';
+    } else {
+        // 「我提的需求」是照 requesterId 分的，後端那支只認 owner，給不出對應的子集，
+        // 所以退回全部 —— 寧可多，不要給一份內容對不上標題的檔案。
+        a.href = '/api/export.csv';
+        a.title = '下載全部工單（CSV，所有人）';
+    }
 }
 
 function cardHTML( t ) {
@@ -651,6 +695,7 @@ function renderFilters() {
     const requesters = [ ...new Set( scoped.map( t => t.requester ).filter( Boolean ) ) ].sort();
     fillSelect( $( '#filter-project' ), projects );
     fillSelect( $( '#filter-requester' ), requesters );
+    syncExportLink();
 
     // 這兩個 datalist 是拿來「填新資料」的，候選要用全庫的，不能只有眼前這個人的
     $( '#project-list' ).innerHTML = [ ...new Set( tasks.map( t => t.project ).filter( Boolean ).concat( meta.projects ) ) ]
@@ -2021,7 +2066,7 @@ function openCatchUpModal( date, items ) {
 
 // 改了 index.html 裡那份「🆕 最近更新」就把這個字串換掉 —— 它只是用來讓「說明」
 // 按鈕上的紅點重新亮起來，每個人各自看過各自的（存在他自己的瀏覽器裡，不進伺服器）。
-const HELP_VERSION = '2026-09-21';
+const HELP_VERSION = '2026-09-21b';
 
 function syncHelpDot() {
     $( '#help-dot' ).classList.toggle( 'hidden', store.helpSeen === HELP_VERSION );
@@ -2105,6 +2150,8 @@ function init() {
 
     [ '#filter-project', '#filter-requester', '#filter-done' ].forEach( s =>
         $( s ).addEventListener( 'change', renderBoard ) );
+    // input 而不是 change —— 邊打邊篩。單子是幾百張這個量級，不用 debounce。
+    $( '#filter-q' ).addEventListener( 'input', renderBoard );
 
     $( '#pw-who' ).addEventListener( 'change', updatePwHint );
     window.addEventListener( 'hashchange', applyView );
