@@ -6,6 +6,29 @@
 
 ---
 
+## 0. 全新安裝（五步）
+
+已經在跑的機器不用看這段 —— 這是給**換一台電腦／另一份 clone** 用的導覽，
+每一步只寫「做什麼」，細節都在後面各節。
+
+1. **裝 Node**（我這台是 v18）。零依賴，⛔ 不要跑 `npm install`。
+2. **生 `config.json`** —— 把 `config.example.json` 複製一份改名，至少改掉 `adminPassword`，
+   `members` 填第一批人。⚠️ `members` / `defaultOwner` **只有第一次啟動會讀**，
+   之後名冊住在 `data.json`，再改 `config.json` 不會有任何作用（見 §2）。
+   不用 TG 就把 `telegram.enabled` 留 `false`，第 3 步可以整個跳過。
+3. **（要 TG 才做）接 bot** —— BotFather 給的 token 先自己貼進 `config.json`，
+   把 bot 拉進群組並在群裡送 `/start@你的bot名稱`，然後 `node setup-tg.js` 選聊天室，
+   它會把 `chatId` 與 `enabled: true` 寫回去。→ §3
+4. **啟動** —— 雙擊 `啟動看板.bat`。防火牆跳出來勾**私人網路**。
+   console 印出來的「內網」那個網址就是要給同事的。→ §1
+5. **開通每個人** —— 管理者登入 → 人員頁 → 每張卡片按 **發起始碼** → 把碼給本人，
+   他自己在管理模式選名字、填碼、設密碼。→ §5
+
+⚠️ `auth.json`、`data.json`、`backup/` **不用手動生**，第一次啟動程式自己會建。
+⛔ 反過來說這三個也不要手改、不要進版控 —— 服務跑著的時候程式會整份覆蓋回去（見 §8）。
+
+---
+
 ## 1. 啟動
 
 ⚠️ **第一次跑之前**：`config.json` 沒有的話 `server.js` 會直接結束。
