@@ -1,0 +1,54 @@
+{
+  "port": 8420,
+  "adminPassword": "請改成你自己的管理密碼",
+  "telegram": {
+    "enabled": false,
+    "botToken": "請填 BotFather 給的 token，或把 enabled 設成 false",
+    "chatId": "請填群組或個人的 chat id（可用 setup-tg.js 取得）",
+    "notifyGroup": false
+  },
+  "notifyDebounceMs": 90000,
+  "dueSoonMin": 30,
+  "projects": [],
+  "members": [
+    {
+      "id": "someone",
+      "name": "某某",
+      "admin": true
+    }
+  ],
+  "defaultOwner": "someone",
+  "workHours": {
+    "normal": [
+      [
+        "09:00",
+        "12:30"
+      ],
+      [
+        "13:30",
+        "18:00"
+      ]
+    ],
+    "overtime": [
+      [
+        "18:30",
+        "22:00"
+      ]
+    ],
+    "workdays": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ]
+  },
+  "meetings": [
+    {
+      "title": "程式會議",
+      "weekday": 2,
+      "start": "16:00",
+      "end": "17:00"
+    }
+  ]
+}

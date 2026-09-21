@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>工作看板</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="dot"></span>
+    <h1>工作看板</h1>
+    <a id="crumb" class="crumb hidden" href="#"></a>
+  </div>
+  <div class="topbar-actions">
+    <span id="whoami" class="who"></span>
+    <button id="btn-help" class="btn ghost" title="怎麼用、最近更新了什麼">❓ 說明<span id="help-dot" class="help-dot hidden"></span></button>
+    <button id="btn-sub" class="btn ghost" title="你提的需求有異動時，TG 私訊通知你">🔔 訂閱通知</button>
+    <button id="btn-notify" class="btn ghost hidden" title="立刻把目前排程推到 TG 群">📣 推播</button>
+    <button id="btn-admin" class="btn ghost">🔑 管理模式</button>
+  </div>
+</header>
+
+<main>
+
+<section id="people-view" class="hidden">
+  <p class="people-lead">選一個人，進去看他的排程、或是跟他提需求。</p>
+  <div id="people-grid" class="people-grid"></div>
+</section>
+
+<div id="board-view" class="hidden">
+
+  <section class="panel">
+    <button id="toggle-new" class="new-toggle">＋ 我要提需求</button>
+    <div id="new-locked" class="locked-note hidden">
+      <span id="new-locked-msg"></span>
+      <button type="button" class="btn ghost sm" id="new-login">去登入</button>
+    </div>
+    <form id="form-new" class="form hidden">
+      <div class="row">
+        <label class="field grow">
+          <span>需求標題 <b class="req">*</b></span>
+          <input name="title" required maxlength="120" placeholder="例：停輪音效比畫面早半拍">
+        </label>
+        <label class="field w-proj">
+          <span>專案 / 遊戲</span>
+          <input name="project" list="project-list" maxlength="60" placeholder="例：迦羅戰神500">
+          <datalist id="project-list"></datalist>
+        </label>
+      </div>
+      <div class="row">
+        <div class="field w-name">
+          <span>提出者</span>
+          <div class="as-me" id="new-as-me">—</div>
+        </div>
+        <label class="field w-wish">
+          <span>希望完成</span>
+          <span class="wish-pair">
+            <input type="date" name="wishDate">
+            <input type="time" name="wishTime" title="不填就是當天內都可以">
+          </span>
+        </label>
+      </div>
+      <label class="field">
+        <span>詳細說明</span>
+        <textarea name="detail" rows="3" maxlength="2000" placeholder="做什麼、為什麼、有沒有參考連結或截圖位置"></textarea>
+      </label>
+      <div class="form-foot">
+        <span class="hint" id="new-hint"></span>
+        <button type="submit" class="btn primary">送出需求</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="panel filters">
+    <div class="filter-group">
+      <label class="field inline">
+        <span>專案</span>
+        <select id="filter-project"><option value="">全部</option></select>
+      </label>
+      <label class="field inline">
+        <span>提出者</span>
+        <select id="filter-requester"><option value="">全部</option></select>
+      </label>
+      <label class="check"><input type="checkbox" id="filter-done"> 顯示已完成</label>
+    </div>
+    <div id="stats" class="stats"></div>
+  </section>
+
+  <div class="layout">
+    <div id="board"></div>
+
+    <aside id="today-panel" class="today panel">
+      <div class="today-head">
+        <h2>📅 排程</h2>
+        <div class="today-ctrl">
+          <select id="day-pick" title="切換日期，可回看已存的排程"></select>
+          <label class="today-start">
+            起排
+            <input type="time" id="day-start" step="300">
+          </label>
+        </div>
+      </div>
+      <div id="today-body"></div>
+      <div class="today-foot">
+        <div class="hint">
+          <span id="wh-hint"></span><br>
+          依「進行中 → 已排程」的排序依序塞入，只排有估時的項目。<br>
+          今天做完的（✅）與做到一半被插件的（⏸）都佔住它實際花掉的時間，
+          所以改狀態不會把後面往前推。<br>
+          固定會議（🗓）那段排不進單，後面整批往後挪。
+        </div>
+      </div>
+    </aside>
+  </div>
+
+</div>
+
+</main>
+
+<div id="pw-modal" class="modal hidden">
+  <form class="modal-box pw-box" id="pw-form">
+    <button type="button" id="pw-close" class="modal-close">✕</button>
+    <h2>進入管理模式</h2>
+    <label class="field" id="pw-who-field">
+      <span>你是誰</span>
+      <select id="pw-who"></select>
+    </label>
+    <label class="field hidden" id="pw-code-field">
+      <span>起始碼</span>
+      <input id="pw-code" maxlength="6" autocomplete="off" spellcheck="false" placeholder="管理者給你的 6 碼">
+    </label>
+    <label class="field">
+      <span id="pw-pass-label">密碼</span>
+      <input type="password" id="pw-input" autocomplete="current-password" required>
+    </label>
+    <div id="pw-error" class="pw-error hidden"></div>
+    <div class="form-foot">
+      <span class="hint" id="pw-hint">排序、估時、設預計完成日只有本人能做。估時可以填 1.5、1h30m、90m 或 1:30。</span>
+      <button type="submit" class="btn primary">進入</button>
+    </div>
+  </form>
+</div>
+
+<div id="sub-modal" class="modal hidden">
+  <div class="modal-box sub-box">
+    <button type="button" id="sub-close" class="modal-close">✕</button>
+    <h2>🔔 訂閱異動通知</h2>
+
+    <div id="sub-step-1">
+      <p class="hint">
+        你追蹤的需求有新的、被估時、改了預計完成日或狀態時，bot 會<b>私訊</b>你。<br>
+        群組不會再收到逐筆異動，所以想知道進度就訂閱這個。
+      </p>
+      <div id="sub-locked" class="locked-note hidden">
+        訂閱要先登入 —— 訂閱綁的是你的帳號，不是打的名字。
+        <button type="button" class="btn ghost sm" id="sub-login">去登入</button>
+      </div>
+      <form id="sub-form" class="form">
+        <div class="field">
+          <span>訂閱者</span>
+          <div class="as-me" id="sub-as-me">—</div>
+        </div>
+        <div class="field">
+          <span>追蹤範圍 <b class="req">*</b></span>
+          <div id="sub-scopes" class="sub-scopes"></div>
+        </div>
+        <label class="check">
+          <input type="checkbox" name="tagInGroup">
+          管理者手動推整份排程到群組時，也 @ 我一下
+        </label>
+        <div class="form-foot">
+          <span class="hint" id="sub-foot-hint">要用你自己的 TG 帳號完成綁定。</span>
+          <button type="submit" class="btn primary" id="sub-submit">產生綁定碼</button>
+        </div>
+      </form>
+      <div id="sub-current" class="sub-current hidden"></div>
+    </div>
+
+    <div id="sub-step-2" class="hidden">
+      <p class="hint">在 Telegram 私訊 bot 送出下面這行，就完成了。<b>不要在群組裡送。</b></p>
+      <div class="sub-code" id="sub-code"></div>
+      <p class="form-foot">
+        <a id="sub-link" class="btn primary" target="_blank" rel="noopener">在 Telegram 開啟</a>
+        <span class="hint" id="sub-wait">等你送出中…</span>
+      </p>
+      <p class="hint">
+        沒有反應？bot 必須先被你私訊過一次才能發訊息給你 —— 這是 Telegram 的限制，
+        所以一定要由你去找它，它沒辦法先找你。
+      </p>
+    </div>
+  </div>
+</div>
+
+<div id="help-modal" class="modal hidden">
+  <div class="modal-box help-box">
+    <button type="button" id="help-close" class="modal-close">✕</button>
+    <h2>❓ 工作看板怎麼用</h2>
+    <p class="hint help-lead">
+      這頁是給團隊看的操作說明。啟動方式、<code>config.json</code>、資料格式那些
+      只有維護的人要看的東西在專案裡的 <code>README.md</code>。
+    </p>
+
+    <section class="help-news">
+      <h3>🆕 最近更新</h3>
+      <ul>
+        <li>
+          <b>排程表不再自動排加班</b><span class="help-ver">09/21</span><br>
+          以前正常工時塞不下會自動往 <b>18:30–22:00</b> 塞，等於看板預設你會加班。
+          現在 <b>18:00 之後不排任何單</b>，塞不下的一律進紅框 <b>⛔ 做不完</b>。<br>
+          ⚠️ 你真的做到 18:00 之後的那幾張還是會照實畫在加班段，<b>不排單 ≠ 不記帳</b>。<br>
+          ⚠️ 這本來就跟卡片上的 <code>≈</code> 推估一致了 —— <code>≈</code> 一直都是「不加班」算的。
+        </li>
+        <li>
+          <b>「希望完成」現在只有提出的人能改，而且會留紀錄</b><span class="help-ver">09/18</span><br>
+          提了單之後想改時間：點開那張單 → <b>🙏 改我希望完成的時間</b>。
+          每改一次都會在<b>討論區留一條系統紀錄</b>（誰、從什麼改成什麼、第幾次），
+          卡片上也會出現 <code>·改過 N 次</code>，並且照原本的方式推到 Telegram。<br>
+          ⚠️ <b>負責人與總管理者現在改不到這一格了</b>（以前改得到、而且不留痕跡）。
+          不能改到今天之前，已完成的單也不能再改。
+        </li>
+        <li>
+          <b>早上會問你「昨天做了多少」</b><span class="help-ver">09/18</span><br>
+          打開自己的看板時，如果<b>昨天排了卻沒改狀態</b>、或有單<b>跨日還停在 🔵 進行中</b>，
+          會跳一個視窗請你把帳補平。按「全部都沒做」也算問過了，當天不會再跳；
+          同一張單一天只補一次，要再修就用卡片上原本的估時那條路。
+        </li>
+        <li>
+          <b>兩種通知不看訂閱範圍</b><span class="help-ver">09/18</span><br>
+          <code>👤 有項目指派給你</code>（別人開單直接指給你、或被轉派給你）與
+          <code>⏰ 快到預計完成時間了</code><span id="due-soon"></span>一律私訊負責人本人。<br>
+          ⚠️ 還是走 Telegram 私訊 ⇒ <b>沒綁過 bot 的人收不到</b>。綁一次就好，
+          綁完訂閱範圍可以全部不勾，這兩種照樣會來。
+        </li>
+        <li>
+          <b>卡片上的 <code>⏱ 原估・已做・剩</code> 保證加得起來</b><span class="help-ver">09/17</span><br>
+          ⚠️ 代價是「原估」的意思變成<b>現在認為總共要多久</b>，不是第一次填的那個數字 ——
+          每次重估剩餘時數都會把它往上推。
+        </li>
+        <li>
+          <b>起排時間改成每人每天一份、存在伺服器</b><span class="help-ver">09/17</span><br>
+          換一台電腦、換一個人來看，看到的都是同一份。本人或管理者可以調。
+        </li>
+      </ul>
+    </section>
+
+    <details class="help-sec" open>
+      <summary>第一次來？先看這段</summary>
+      <ol>
+        <li>打開網址先看到<b>人員頁</b>，一個人一張卡，<b>點進去</b>才是那個人的看板。</li>
+        <li>
+          右上角 <b>🔑 管理模式</b> → 選自己 → 填密碼。<br>
+          還沒有密碼的人會多一格<b>起始碼</b> —— 那是管理者給你的 6 碼，
+          填碼＋自己想用的密碼就開通了。<b>那組碼只能用一次、7 天內有效</b>，
+          忘了就請管理者重發。
+        </li>
+        <li><b>提需求與留言都要先登入</b>。署名一律從登入帳號來，不能用別人的名義送。</li>
+        <li>忘記密碼：請總管理者直接幫你重設，不用起始碼也不用舊密碼。</li>
+      </ol>
+      <p class="hint">
+        服務重開會把所有人登出（登入狀態只存在記憶體裡），重新輸一次密碼就好，那不是壞掉。
+      </p>
+    </details>
+
+    <details class="help-sec" open>
+      <summary>三個入口分別是什麼</summary>
+      <table class="help-table">
+        <tr>
+          <th>某個人的卡片</th>
+          <td>那個人的看板 ＋ 右側他的排程。<b>進到誰的頁面，就是跟誰提需求。</b></td>
+        </tr>
+        <tr>
+          <th>📥 還不確定找誰</th>
+          <td>
+            不知道該找誰的需求放這裡，不會被硬塞給某個人。<br>
+            無主的單<b>任何登入的人都能接走</b>（下拉選「接給我」），不用等管理者分派；
+            接走之後就有主了，再換人只有總管理者能轉。
+          </td>
+        </tr>
+        <tr>
+          <th>🙋 我提的需求</th>
+          <td>
+            跨所有人，抓<b>你登入帳號</b>提的單。<br>
+            唯讀 —— 在那裡排序等於替別人決定順序，所以沒有拖曳、沒有估時欄。
+          </td>
+        </tr>
+      </table>
+    </details>
+
+    <details class="help-sec">
+      <summary>提需求（編導）</summary>
+      <ul>
+        <li>先進到<b>要提給的那個人</b>的看板 → <b>＋ 我要提需求</b>。不知道找誰就去 📥 那一頁。</li>
+        <li><b>標題</b>必填。專案、希望完成、詳細說明能填就填 —— 對方是照這些決定順序的。</li>
+        <li>
+          <b>希望完成</b>：選日期，時間可以留白（留白＝那天之內都可以），
+          時刻任何分鐘都收。卡片上顯示成 <code>🙏 希望 09/25 14:00</code>，過了就變紅。
+        </li>
+        <li>送出後單子一律進 <code>📥 待評估</code>，等負責人估時、排序。</li>
+      </ul>
+      <p class="help-warn">
+        ⚠️ <b>「希望完成」是你想要的時間，不是對方答應的事。</b>
+        對方給出去的承諾是卡片上的 <code>📅 預計完成</code>。
+      </p>
+      <p class="hint">
+        <b>提了之後想改時間</b>：點開那張單 → <b>🙏 改我希望完成的時間</b>。
+        只有<b>你自己</b>改得動（負責人與總管理者都不行），每一次都會在討論區留下一條
+        系統紀錄、卡片上出現 <code>·改過 N 次</code>，也會通知負責人。<br>
+        ⛔ 不能改到<b>今天之前</b>，<b>已完成</b>的單也不能再改。<br>
+        ⚠️ 很舊的單（系統裡對不上你的帳號）沒有「提出者本人」，那幾張誰都改不了 ——
+        要改的話請找維護的人。
+      </p>
+    </details>
+
+    <details class="help-sec">
+      <summary>卡片上三個日期不要搞混</summary>
+      <table class="help-table">
+        <tr><th>🙏 希望</th><td>編導給的 —— 他想要的時間，<b>沒有人答應任何事</b>。<br>只有<b>提出的人自己</b>改得動，改過會顯示 <code>·改過 N 次</code></td></tr>
+        <tr><th>📅 預計完成</th><td>負責人給的 —— 這是<b>承諾</b></td></tr>
+        <tr>
+          <th>≈ 推估</th>
+          <td>
+            程式算的 —— 照<b>目前的排序與估時</b>一天一天往後推的<b>後果</b>。<br>
+            只用正常工時推、週末跳過；待評估、擱置、沒估時的沒有 <code>≈</code>。<br>
+            手填了 📅 之後就不顯示 <code>≈</code>（兩個一起出現會不知道該信哪個）。
+          </td>
+        </tr>
+      </table>
+      <p class="hint">
+        📅 跟 ≈ 對不起來，就是該調順序、或該改承諾了。
+      </p>
+    </details>
+
+    <details class="help-sec">
+      <summary>接單的人：一張單怎麼走</summary>
+      <p>
+        <code>📥 待評估</code> → <code>🟡 已排程</code> → <code>🔵 進行中</code> →
+        <code>✅ 已完成</code>（另有 <code>⏸️ 擱置</code>）
+      </p>
+      <ul>
+        <li>新單一律進 <b>待評估</b>。<b>估時、排序、給日期都是你的動作</b>，沒人會幫你決定。</li>
+        <li>
+          <b>估時怎麼填</b>：<code>1.5</code>、<code>1h30m</code>、<code>90m</code>、
+          <code>1:30</code> 四種寫法都收，內部一律存小時、顯示一律印成 <code>1h20m</code>。
+          打錯字會擋下來並把可用寫法列給你，<b>不會默默存成 0</b>。
+        </li>
+        <li><b>拖曳排序只會動到你自己那幾筆</b>，別人的順序一個字都不會被動到。</li>
+        <li>估時、完成日、狀態在卡片上那一列直接改；<b>看不到那一列就是你不能改</b>。</li>
+        <li>改標題 / 專案 / 說明 / 備註：點開單 → <b>✏️ 編輯這張單</b>。</li>
+      </ul>
+      <p class="help-warn">
+        ⚠️ <b>排程與評估只有本人能動，總管理者也不行。</b>
+        排不排得下、一張單要做多久，只有他自己知道。管理者對別人的單只剩三件事：
+        <b>轉派、改文字、刪除</b>。<br>
+        例外是<b>無主的單</b> —— 它還沒有「本人」，任何登入的人都能先估時、先排。
+      </p>
+    </details>
+
+    <details class="help-sec">
+      <summary>做到一半被插件</summary>
+      <p>
+        長單做到一半被插件，卡片上那個估時<b>已經不是還要做多久了</b>。所以從
+        <code>🔵 進行中</code> 改成 <code>🟡 已排程</code> / <code>⏸️ 擱置</code> 時，
+        會跳一個框問你<b>剩下還要幾小時</b>。
+      </p>
+      <ul>
+        <li>
+          預設值是<b>推的、不是量的</b>：從進「進行中」那一刻算到現在，扣掉午休、下班、
+          週末與固定會議。⚠️ <b>它不知道國定假日</b>，那種日子會多算一天 ——
+          <b>不對就直接改掉</b>。
+        </li>
+        <li>按<b>取消</b>＝整個動作不做，狀態不會變。</li>
+        <li>
+          存完卡片會寫 <code>⏱ 原估 6h・已做 5h24m・剩 36m</code>，這三個數字
+          <b>永遠加得起來</b>。再被插一次會累加。
+        </li>
+        <li>
+          ⚠️ <b>「原估」＝現在認為總共要多久</b>，不是第一次填的數字。原估 1h 的單
+          改成「還要 2h」之後，卡片會寫 <code>原估 2h・已做 0m・剩 2h</code>。
+        </li>
+        <li>改成 <code>✅ 已完成</code> 不會問也不會動這筆帳 —— 做完了，剩餘時數沒有意義。</li>
+      </ul>
+    </details>
+
+    <details class="help-sec">
+      <summary>右側那張排程表怎麼算</summary>
+      <table class="help-table">
+        <tbody id="help-wh"></tbody>
+      </table>
+      <ul>
+        <li>
+          依 <code>🔵 進行中</code> → <code>🟡 已排程</code> 的順序依序塞，各自照你拖出來的順序。
+          <code>📥 待評估</code> 與<b>沒填估時的不排</b>，另外列在下面提醒你。
+        </li>
+        <li>
+          <b>今天做完的（✅）與被插件的（⏸）佔住它實際花掉的時間</b>，灰色顯示 ——
+          所以改狀態不會把後面的往前推。
+        </li>
+        <li>
+          <b>🗓 固定會議</b>那段排不進任何單，後面整批往後挪；跨過會議的單會被切成
+          前後兩段（第二段標「續」）。
+        </li>
+        <li>
+          <b>加班時段不排單</b>（09/21 改的）—— 正常工時塞不到 18:00 前做完的，
+          一律進紅框 <b>⛔ 做不完</b>。要不要留下來趕是你自己決定，看板不幫你假設。<br>
+          ⚠️ 但你<b>真的做到 18:00 之後</b>（那個時間才按完成／被插件）的，表上還是會照實畫出來 ——
+          不排單跟不記帳是兩回事。
+        </li>
+        <li>點任何一列都能開那張單。</li>
+      </ul>
+      <p>
+        <b>起排時間</b>（右上那格）＝這張表從幾點開始畫。每人每天一份、存在伺服器上，
+        <b>本人或管理者</b>可以調（幫遲到／請假的同事調），其他人看得到、調不動。
+      </p>
+      <p class="hint">
+        一旦定下就<b>不會再跟著時鐘跑</b> —— 不然晚上八點再打開一次，
+        整個下午的排程會因為「現在是 20:00」而憑空消失。隔天是另一張表，自動回到預設。
+      </p>
+    </details>
+
+    <details class="help-sec">
+      <summary>早上那個補帳跳窗</summary>
+      <ul>
+        <li>
+          <b>只問你自己</b>。打開自己的看板才會跳，管理者路過看別人的看板不會觸發，
+          回看歷史日期也不會。
+        </li>
+        <li>
+          <b>基準日不一定是昨天</b> —— 它找「最近一個早於今天、而且你有排程快照的日期」。
+          週末、請假、那天沒打開看板都會讓昨天沒有快照，這時會再往前找。
+        </li>
+        <li><b>按「全部都沒做」也算問過了</b>，那幾張當天不會再問。</li>
+        <li>
+          <b>一張單一天只能補一次</b>。同一天重送會被當成已經補過直接放行，
+          數字不會被加兩次；要再修就改卡片上的估時。
+        </li>
+        <li>
+          補的數字會進「已做」欄位，但<b>不會在右側時間表上長出灰色區間</b> ——
+          那天的表已經凍結了。
+        </li>
+      </ul>
+    </details>
+
+    <details class="help-sec">
+      <summary>Telegram 通知</summary>
+      <p><b>怎麼訂</b>（只要做一次）：</p>
+      <ol>
+        <li>先登入（訂閱綁的是帳號，不是你打的名字）</li>
+        <li>右上角 <b>🔔 訂閱通知</b> → 勾追蹤範圍 → 產生一組 6 碼</li>
+        <li>
+          在 Telegram <b>私訊</b> bot 送 <code>/bind 那組碼</code>
+          （或直接點「在 Telegram 開啟」）
+        </li>
+      </ol>
+      <p class="help-warn">
+        ⚠️ <b>bot 沒辦法主動私訊一個從沒跟它講過話的人</b>，這是 Telegram 的硬限制 ——
+        一定要<b>由你去找它</b>。<br>
+        ⛔ <b>也不要在群組裡送 <code>/bind</code></b>：那樣存到的是群組 id，
+        之後「私訊」會發到整群去。
+      </p>
+      <p>
+        <b>追蹤範圍</b>可以複選：我提的需求 ／ 還不確定找誰的 ／ 某個人的單 ／ 某個專案 ／ 全部。
+        改範圍<b>不用重綁</b>，再打開一次那個視窗，送出鍵會自己變成「更新追蹤範圍」。
+      </p>
+      <p><b>什麼會推、什麼不推</b>：</p>
+      <ul>
+        <li>
+          只有<b>估時、預計完成日、狀態、轉派、預估完成</b>這五種異動會推，
+          外加<b>有新單進來</b>（🆕）。改標題、改備註、有人留言 → <b>不推</b>（避免洗版）。
+        </li>
+        <li>
+          <b>「預估完成」是排序造成的</b>：你把一張單往前拖，後面每一張真的都會變晚，
+          被推遲的那幾張會各自通知它們的提出者。
+        </li>
+        <li>同一個欄位在彙整期間改好幾次只留<b>最初 → 最後</b>；改過去又改回來＝不發通知。</li>
+        <li>逐筆異動<b>只走個人私訊</b>，群組只會收到管理者按 <b>📣 推播</b> 的那一則。</li>
+        <li><b>自己動的不會回頭吵自己</b>（自己開單給自己、自己撿走無主單 → 不發）。</li>
+      </ul>
+    </details>
+
+    <details class="help-sec">
+      <summary>誰能做什麼</summary>
+      <table class="help-table help-perm">
+        <tr><th></th><th>沒登入</th><th>編導</th><th>本人<br>（自己的單）</th><th>總管理者<br>（別人的單）</th></tr>
+        <tr><td>看清單、看進度、看預計完成</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+        <tr><td>新增需求</td><td>❌</td><td>✅</td><td>✅</td><td>❌</td></tr>
+        <tr><td>留言討論</td><td>❌</td><td>✅</td><td>✅</td><td>✅</td></tr>
+        <tr><td>排序（拖曳）</td><td>❌</td><td>❌</td><td>✅</td><td>❌</td></tr>
+        <tr><td>估時／預計完成日／改狀態</td><td>❌</td><td>❌</td><td>✅</td><td>❌</td></tr>
+        <tr><td>改「🙏 希望完成」<br><span class="hint">（只有提出那張單的人）</span></td><td>❌</td><td>✅</td><td>✅</td><td>❌</td></tr>
+        <tr><td>改標題／專案／說明／備註</td><td>❌</td><td>❌</td><td>✅</td><td>✅</td></tr>
+        <tr><td>刪除</td><td>❌</td><td>❌</td><td>✅</td><td>✅</td></tr>
+        <tr><td>轉派給別人</td><td>❌</td><td>❌</td><td>❌</td><td>✅</td></tr>
+        <tr><td>加減人員、發起始碼、手動推播</td><td>❌</td><td>❌</td><td>❌</td><td>✅</td></tr>
+      </table>
+      <p class="hint">
+        <b>編導</b>也是名冊上的帳號，只是不接單、沒有自己的看板，也不會出現在負責人選單裡。<br>
+        「總管理者」那組共用密碼<b>沒有綁到人</b>，所以它提不了需求 ——「提出者」要是一個真的帳號。
+      </p>
+      <p class="hint">
+        這是內網信任環境的設計：有帳號、有密碼，但沒有 HTTPS。
+        它保護的是「不會有人誤動我的排序、不會有人用我的名義提單」，不是防惡意使用者。
+      </p>
+    </details>
+
+  </div>
+</div>
+
+<div id="modal" class="modal hidden">
+  <div class="modal-box">
+    <button id="modal-close" class="modal-close">✕</button>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+# ⛔ 機密：Telegram botToken、管理密碼都在這裡。永遠不要進 repo。
+#    要複製環境請用 config.example.json。
+config.json
+
+# ⛔ 登入憑證（密碼雜湊）
+auth.json
+
+# 實際工單資料（含同事姓名／工作內容），不是程式的一部分
+data.json
+backup/
+
+# 暫存實驗（裡面另有一份帶真 token 的 config.json）
+scratchpad/
+
+# 執行時產生
+server-out.log
+server-err.log
+node_modules/

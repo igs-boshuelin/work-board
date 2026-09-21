@@ -1,0 +1,572 @@
+:root {
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --surface-2: #f8f9fb;
+  --border: #dfe3ea;
+  --text: #1c2330;
+  --muted: #6b7484;
+  --accent: #3b6ef5;
+  --accent-soft: #e8efff;
+  --danger: #d8453c;
+  --ok: #17936a;
+  --warn: #c6851a;
+  --shadow: 0 1px 2px rgba(20, 30, 50, .06), 0 4px 14px rgba(20, 30, 50, .06);
+  --radius: 10px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14171d;
+    --surface: #1c2027;
+    --surface-2: #22272f;
+    --border: #333a45;
+    --text: #e6e9ef;
+    --muted: #949cab;
+    --accent: #5b87ff;
+    --accent-soft: #232c45;
+    --danger: #ef6a60;
+    --ok: #3fb98c;
+    --warn: #e0a642;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 4px 14px rgba(0, 0, 0, .25);
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #14171d; --surface: #1c2027; --surface-2: #22272f; --border: #333a45;
+  --text: #e6e9ef; --muted: #949cab; --accent: #5b87ff; --accent-soft: #232c45;
+  --danger: #ef6a60; --ok: #3fb98c; --warn: #e0a642;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.6 "Noto Sans TC", "Microsoft JhengHei", -apple-system, "Segoe UI", sans-serif;
+}
+
+/* ── top bar ───────────────────────────────────────────── */
+
+.topbar {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand h1 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: .02em; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
+.topbar-actions { display: flex; align-items: center; gap: 8px; }
+.who { font-size: 12px; color: var(--muted); }
+.who.admin { color: var(--ok); font-weight: 600; }
+
+main { max-width: 1240px; margin: 0 auto; padding: 16px; }
+
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 14px; align-items: start; }
+@media (max-width: 900px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .today { order: -1; }   /* 窄螢幕時今日排程放最上面 */
+}
+
+/* ── panels & forms ────────────────────────────────────── */
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  margin-bottom: 14px;
+}
+
+.new-toggle {
+  width: 100%; padding: 13px 16px;
+  background: none; border: 0; border-radius: var(--radius);
+  color: var(--accent); font: inherit; font-weight: 600; text-align: left;
+  cursor: pointer;
+}
+.new-toggle:hover { background: var(--surface-2); }
+
+.form { padding: 4px 16px 16px; border-top: 1px solid var(--border); }
+.row { display: flex; gap: 12px; flex-wrap: wrap; }
+.field { display: flex; flex-direction: column; gap: 4px; margin-top: 12px; flex: 1 1 100%; min-width: 0; }
+.field.grow { flex: 3 1 240px; }
+.field.w-proj { flex: 2 1 180px; }
+.field.w-name { flex: 1 1 140px; }
+.field.w-wish { flex: 2 1 200px; }
+.field > span { font-size: 12px; color: var(--muted); font-weight: 600; }
+.req { color: var(--danger); }
+
+input, textarea, select {
+  width: 100%; padding: 8px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border); border-radius: 7px;
+  color: var(--text); font: inherit;
+}
+input:focus, textarea:focus, select:focus {
+  outline: none; border-color: var(--accent); background: var(--surface);
+}
+textarea { resize: vertical; }
+
+.form-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap; margin-top: 14px;
+}
+.hint { font-size: 12px; color: var(--muted); }
+
+.btn {
+  padding: 8px 14px; border-radius: 7px; border: 1px solid var(--border);
+  background: var(--surface-2); color: var(--text);
+  font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap;
+}
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.btn.primary:hover { filter: brightness(1.08); color: #fff; }
+.btn.ghost { background: none; }
+.btn.sm { padding: 4px 9px; font-size: 12px; }
+.btn.danger:hover { border-color: var(--danger); color: var(--danger); }
+
+/* ── filters ───────────────────────────────────────────── */
+
+.filters {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 14px; flex-wrap: wrap; padding: 10px 16px;
+}
+.filter-group { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.field.inline { flex-direction: row; align-items: center; gap: 6px; margin: 0; flex: 0 0 auto; }
+.field.inline select { width: auto; min-width: 110px; padding: 5px 8px; font-size: 13px; }
+.check { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); cursor: pointer; }
+.check input { width: auto; }
+.stats { font-size: 12px; color: var(--muted); display: flex; gap: 12px; flex-wrap: wrap; }
+.stats b { color: var(--text); }
+
+/* ── board ─────────────────────────────────────────────── */
+
+.group { margin-bottom: 18px; }
+.group-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 4px 8px; font-size: 13px; font-weight: 700; color: var(--muted);
+}
+.group-head .count {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 20px; padding: 0 8px; font-size: 11px; font-weight: 600;
+}
+
+.card {
+  display: flex; gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
+  border-radius: var(--radius);
+  padding: 11px 13px; margin-bottom: 8px;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+}
+.card:hover { border-color: var(--accent); }
+.card.s-doing { border-left-color: var(--accent); }
+.card.s-todo { border-left-color: var(--warn); }
+.card.s-done { border-left-color: var(--ok); opacity: .62; }
+.card.s-parked { border-left-color: var(--muted); opacity: .7; }
+.card.dragging { opacity: .4; }
+.card.drop-target { border-top: 2px solid var(--accent); }
+
+.handle {
+  flex: 0 0 auto; align-self: center;
+  color: var(--muted); cursor: grab; font-size: 15px; padding: 0 2px;
+  user-select: none;
+}
+.handle:active { cursor: grabbing; }
+
+.card-main { flex: 1 1 auto; min-width: 0; }
+.card-title { font-weight: 600; word-break: break-word; }
+.card-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 5px; font-size: 12px; color: var(--muted); align-items: center; }
+
+.tag {
+  background: var(--accent-soft); color: var(--accent);
+  border-radius: 5px; padding: 1px 7px; font-size: 11px; font-weight: 600;
+}
+.tag.plain { background: var(--surface-2); color: var(--muted); }
+
+.due { font-weight: 700; color: var(--text); }
+.due.overdue { color: var(--danger); }
+.due.soon { color: var(--warn); }
+.due.none { color: var(--muted); font-weight: 400; }
+
+.card-side { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
+
+/* ── 今日預估 ───────────────────────────────────────────── */
+
+.today { position: sticky; top: 72px; padding: 12px 14px 10px; }
+.today-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.today-head h2 { margin: 0; font-size: 14px; font-weight: 700; }
+.today-ctrl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.today-ctrl select { width: auto; padding: 3px 6px; font-size: 12px; }
+.today-start { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); }
+.today-start input { width: auto; padding: 3px 6px; font-size: 12px; }
+.today-start input:disabled { opacity: .45; }
+
+.slot-group { margin-top: 12px; }
+.slot-group-label {
+  font-size: 11px; font-weight: 700; color: var(--muted);
+  letter-spacing: .04em; padding-bottom: 5px; border-bottom: 1px solid var(--border);
+}
+.slot-group.ot .slot-group-label { color: var(--warn); }
+
+.slot {
+  display: flex; gap: 9px; padding: 7px 0;
+  border-bottom: 1px dashed var(--border); font-size: 13px;
+}
+.slot:last-child { border-bottom: 0; }
+.slot[data-id] { cursor: pointer; }
+.slot[data-id]:hover .slot-title { color: var(--accent); }
+.slot-time {
+  flex: 0 0 82px; font-variant-numeric: tabular-nums;
+  font-size: 12px; color: var(--muted); padding-top: 1px;
+}
+.slot-body { flex: 1 1 auto; min-width: 0; }
+.slot-title { font-weight: 600; word-break: break-word; }
+.slot-sub { font-size: 11px; color: var(--muted); margin-top: 1px; }
+.slot-sub .cont { color: var(--accent); }
+
+.slot.free .slot-title { color: var(--muted); font-weight: 400; }
+.slot.ot { background: linear-gradient(90deg, var(--accent-soft), transparent); border-radius: 6px; padding-left: 6px; }
+.slot.doing .slot-title::before { content: "🔵 "; }
+.slot.todo .slot-title::before { content: "🟡 "; }
+/* 已經做完的：淡掉，讓視線直接落在「接下來」那幾段 */
+.slot.done { opacity: .5; }
+.slot.done .slot-title::before { content: "✅ "; }
+
+/* 今天做到一半被插件的：同樣淡掉，佔住它已經花掉的時段。
+   ⚠️ 要排在 .slot.doing / .slot.todo 後面 —— 特異度一樣，靠順序決勝，
+   往前搬的話狀態的 🟡 會蓋回來，那段看起來就像「還沒做」。 */
+.slot.cut { opacity: .5; }
+.slot.cut .slot-title::before { content: "⏸ "; }
+
+/* 結束在同一分鐘的好幾張：合成一格、每張一行。
+   ⚠️ 刻意不套 .slot.done / .slot.cut —— 那兩條的 ::before 會給整格同一個圖示，
+   但同一分鐘結束的可能一張是完成、一張是被插件，圖示改成逐行寫在標題文字裡。
+   ⚠️ 所以淡掉要自己來（這一格一定是「已經過去的」）。 */
+.slot.multi { opacity: .5; }
+.slot.multi .slot-title[data-id] { cursor: pointer; }
+.slot.multi .slot-title[data-id]:hover { color: var(--accent); }
+
+/* 固定會議：排不進單的時段，畫成「被佔走」而不是「空著」 */
+.slot.meeting { background: var(--accent-soft); }
+.slot.meeting .slot-title { color: var(--accent); font-weight: 700; }
+.slot.meeting .slot-title::before { content: "🗓 "; }
+
+.today-over {
+  margin-top: 12px; padding: 9px 10px;
+  background: var(--surface-2); border: 1px solid var(--danger);
+  border-radius: 8px; font-size: 12px;
+}
+.today-over b { color: var(--danger); }
+.today-over ul { margin: 6px 0 0; padding-left: 18px; }
+
+.today-noest { margin-top: 10px; font-size: 12px; color: var(--muted); }
+.today-noest b { color: var(--warn); }
+
+.today-foot { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 9px; }
+.today-foot .hint { font-size: 11px; line-height: 1.6; }
+
+/* ── admin inline edit ─────────────────────────────────── */
+
+.admin-bar {
+  display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+  margin-top: 9px; padding-top: 9px; border-top: 1px dashed var(--border);
+}
+.admin-bar label { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); }
+.admin-bar input, .admin-bar select { width: auto; padding: 4px 7px; font-size: 12px; }
+.admin-bar input[type="number"] { width: 62px; }
+
+/* ── modal ─────────────────────────────────────────────── */
+
+.modal {
+  position: fixed; inset: 0; z-index: 40;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(10, 14, 22, .55); padding: 16px;
+}
+.modal-box {
+  position: relative;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; box-shadow: var(--shadow);
+  width: 100%; max-width: 620px; max-height: 86vh; overflow: auto;
+  padding: 20px;
+}
+.modal-close {
+  position: absolute; top: 10px; right: 12px;
+  background: none; border: 0; color: var(--muted);
+  font-size: 18px; cursor: pointer; line-height: 1;
+}
+.modal h2 { margin: 0 8px 10px 0; font-size: 17px; word-break: break-word; }
+
+.edit-block {
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 0 12px; margin: 14px 0; background: var(--surface-2);
+}
+.edit-block > summary {
+  cursor: pointer; padding: 9px 0; font-size: 13px; font-weight: 600; color: var(--accent);
+}
+.edit-block[open] > summary { border-bottom: 1px solid var(--border); }
+.edit-block form { padding-bottom: 12px; }
+
+.pw-box { max-width: 380px; }
+.pw-error { margin-top: 10px; font-size: 13px; color: var(--danger); font-weight: 600; }
+
+.sub-box { max-width: 460px; }
+.sub-box h2 { margin-bottom: 4px; }
+.sub-code {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 20px; font-weight: 700; letter-spacing: 1px;
+  text-align: center; user-select: all;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+  padding: 14px 10px; margin: 12px 0;
+}
+.sub-current {
+  margin-top: 12px; padding: 10px 12px; font-size: 13px;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+}
+/* 追蹤範圍：選項可能不少（人員＋專案），給它自己的捲動區，不要把視窗撐長 */
+.sub-scopes {
+  max-height: 210px; overflow-y: auto;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface-2); padding: 8px 10px;
+}
+.sub-scopes .check { padding: 3px 0; color: var(--text); }
+.sub-scopes .check.muted { opacity: .4; }
+.sub-scopes .scope-group {
+  font-size: 11px; font-weight: 700; color: var(--muted);
+  margin: 8px 0 2px; padding-top: 7px; border-top: 1px solid var(--border);
+}
+.sub-scopes .scope-group:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+.scope-hint { color: var(--muted); font-size: 11px; margin-left: 4px; }
+
+.btn.small { padding: 4px 10px; font-size: 12px; }
+.detail-text { white-space: pre-wrap; word-break: break-word; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin: 10px 0; }
+.kv { display: grid; grid-template-columns: 82px 1fr; gap: 4px 10px; font-size: 13px; margin: 10px 0; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; word-break: break-word; }
+
+.comments { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 12px; }
+.comment { background: var(--surface-2); border-radius: 8px; padding: 8px 11px; margin-bottom: 7px; }
+.comment-head { font-size: 12px; color: var(--muted); margin-bottom: 2px; }
+.comment-head b { color: var(--text); }
+.comment-text { white-space: pre-wrap; word-break: break-word; }
+.comment-form { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.comment-form input[name="who"] { flex: 0 0 110px; }
+.comment-form input[name="text"] { flex: 1 1 200px; }
+
+/* ── misc ──────────────────────────────────────────────── */
+
+.empty { text-align: center; color: var(--muted); padding: 30px 16px; font-size: 13px; }
+.hidden { display: none !important; }
+
+.toast {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+  z-index: 60; padding: 10px 18px; border-radius: 8px;
+  background: var(--text); color: var(--bg);
+  font-size: 13px; font-weight: 600; box-shadow: var(--shadow);
+}
+.toast.err { background: var(--danger); color: #fff; }
+
+@media (max-width: 560px) {
+  main { padding: 12px; }
+  .kv { grid-template-columns: 70px 1fr; }
+}
+
+/* ── 人員牆 ────────────────────────────────────────────── */
+
+.crumb {
+  color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 600;
+  padding: 2px 8px; border-radius: 6px;
+}
+.crumb:hover { color: var(--accent); background: var(--accent-soft); }
+
+.people-lead { margin: 0 0 14px; color: var(--muted); font-size: 13px; }
+
+.people-grid {
+  display: grid; gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+}
+
+.people-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 14px 15px;
+  cursor: pointer;
+  transition: border-color .12s, transform .12s;
+}
+.people-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+.people-card.muted { background: var(--surface-2); box-shadow: none; }
+
+.people-head { display: flex; align-items: center; gap: 10px; }
+.people-icon { font-size: 22px; line-height: 1; }
+.people-name { font-weight: 700; font-size: 15px; }
+.people-sub { font-size: 12px; color: var(--muted); }
+
+.people-stats { display: flex; gap: 16px; margin: 12px 0 8px; }
+.people-stat { display: flex; flex-direction: column; line-height: 1.2; }
+.people-stat b { font-size: 19px; font-weight: 700; }
+.people-stat span { font-size: 11px; color: var(--muted); }
+.people-stat.bad b { color: var(--danger); }
+
+.people-foot { font-size: 12px; color: var(--muted); border-top: 1px solid var(--border); padding-top: 8px; }
+
+/* 推估完成日：跟我手填的 due 長得不一樣，免得兩個日期混在一起 */
+.proj {
+  font-weight: 600; color: var(--muted);
+  background: var(--surface-2); border-radius: 5px; padding: 1px 6px;
+}
+
+.people-setup { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.people-setup .hint { flex: 1 1 100%; }   /* 提示自己一行，按鈕才不會一張卡一個高度 */
+#pw-code { text-transform: uppercase; letter-spacing: .18em; font-family: ui-monospace, "Consolas", monospace; }
+
+/* ── 人員管理 ──────────────────────────────────────────── */
+
+.people-edit {
+  margin-left: auto; align-self: flex-start;
+  background: none; border: 0; color: var(--muted);
+  font-size: 14px; line-height: 1; padding: 3px 5px; border-radius: 6px; cursor: pointer;
+}
+.people-edit:hover { color: var(--accent); background: var(--accent-soft); }
+
+.people-card.add {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px; text-align: center;
+  background: none; border: 1px dashed var(--muted); box-shadow: none; color: var(--muted);
+}
+.people-card.add:hover { color: var(--accent); }
+.people-card.add .add-plus { font-size: 24px; line-height: 1; }
+.people-card.add .add-label { font-weight: 700; font-size: 14px; }
+.people-card.add .people-foot { border: 0; padding-top: 4px; }
+
+.mem-id-fixed {
+  padding: 8px 10px; background: var(--surface-2);
+  border: 1px dashed var(--border); border-radius: 7px;
+  font-family: ui-monospace, "Consolas", monospace;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+}
+.field > span.hint { font-weight: 400; }   /* .field > span 的 600 對提示太重 */
+.mem-check { margin-top: 14px; }
+
+.modal-actions {
+  display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap;
+  margin-top: 18px; border-top: 1px solid var(--border); padding-top: 14px;
+}
+.modal-actions .btn.danger { margin-right: auto; }   /* 移除推到左邊，不要挨著「儲存」 */
+
+/* ── v4：身分綁帳號、希望完成時間 ──────────────────────── */
+
+/* 提出者／訂閱者：不是輸入框，但要跟旁邊的輸入框一樣高，不然那一列會歪 */
+.as-me {
+  padding: 8px 10px; background: var(--surface-2);
+  border: 1px dashed var(--border); border-radius: 7px;
+  font-weight: 600;
+}
+
+/* 希望完成＝日期＋時刻。時刻窄一點，兩格加起來才不會擠掉旁邊的欄位 */
+.wish-pair { display: flex; gap: 6px; }
+.wish-pair input[type="date"] { flex: 1 1 auto; min-width: 0; }
+.wish-pair input[type="time"] { flex: 0 0 92px; }
+
+/* 過了編導希望的時間。⚠️ 跟 .due.overdue 是兩回事：那個是我排的日期 */
+.wish.late { color: var(--danger); font-weight: 600; }
+
+/* 沒登入時取代「＋ 我要提需求」的那一行 */
+.locked-note {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  font-size: 13px; color: var(--muted);
+  background: var(--surface-2); border: 1px dashed var(--border);
+  border-radius: 7px; padding: 10px 12px;
+}
+
+/* 人員牆上「編導」那一段的分隔標題 */
+.people-sep {
+  grid-column: 1 / -1;
+  font-size: 12px; font-weight: 700; color: var(--muted);
+  border-top: 1px solid var(--border); padding-top: 12px; margin-top: 4px;
+}
+/* 編導卡點不進去（沒有他的看板），所以不要有可點的手感 */
+.people-card.flat { cursor: default; }
+.people-card.flat:hover { border-color: var(--border); transform: none; }
+.people-card.add.flat { cursor: pointer; }
+.people-card.add.flat:hover { color: var(--accent); }
+
+/* ── v5.6：補帳視窗 ─────── */
+.cu-row { border-top: 1px solid var(--border); padding: 12px 0 4px; }
+.cu-row-title { font-weight: 600; margin-bottom: 4px; }
+.cu-fields { display: flex; gap: 8px; }
+.cu-fields .field { flex: 1 1 0; min-width: 0; }
+
+/* ── 說明視窗 ──────────────────────────────────────────── */
+
+/* 說明是一份文件，比其他 modal 需要更多橫向空間 */
+.help-box { max-width: 780px; line-height: 1.75; }
+.help-box p { margin: 8px 0; }
+.help-box ul, .help-box ol { margin: 8px 0; padding-left: 22px; }
+.help-box li { margin: 5px 0; }
+.help-box code {
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px;
+  padding: 1px 5px; font-size: 12px; white-space: nowrap;
+}
+.help-lead { margin-bottom: 14px; }
+
+/* 「說明」按鈕上的未讀點 —— 有新的更新公告時才亮 */
+.help-dot {
+  display: inline-block; width: 7px; height: 7px; margin-left: 5px;
+  border-radius: 50%; background: var(--danger); vertical-align: top;
+}
+
+.help-news {
+  border: 1px solid var(--accent); border-radius: 8px;
+  padding: 2px 14px 10px; margin: 0 0 14px; background: var(--surface-2);
+}
+.help-news h3 { margin: 12px 0 6px; font-size: 14px; color: var(--accent); }
+.help-news .help-ver { margin-left: 6px; font-size: 11px; color: var(--muted); }
+
+.help-sec {
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 0 14px; margin: 10px 0; background: var(--surface-2);
+}
+.help-sec > summary {
+  cursor: pointer; padding: 10px 0; font-size: 13px; font-weight: 600; color: var(--accent);
+}
+.help-sec[open] > summary { border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+.help-sec > :last-child { margin-bottom: 12px; }
+
+.help-warn {
+  border-left: 3px solid var(--danger); border-radius: 0 4px 4px 0;
+  padding: 6px 10px; background: var(--surface);
+}
+
+.help-table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 13px; }
+.help-table th, .help-table td {
+  border: 1px solid var(--border); padding: 6px 9px; text-align: left; vertical-align: top;
+}
+.help-table th { background: var(--surface); font-weight: 600; white-space: nowrap; }
+/* 權限表的欄位是勾勾，置中才對得起來；第一欄仍是說明文字 */
+.help-perm th, .help-perm td { text-align: center; white-space: normal; }
+.help-perm td:first-child, .help-perm th:first-child { text-align: left; }
+
+/* ── 🙏 希望完成：只有提出者能改 ─────────────────────────── */
+
+/* 「改過 N 次」。跟在 🙏 後面，⚠️ 刻意不用 danger 色 —— 改過不等於做錯事，
+   紅字會變成公開指責；要對帳的人點開單看討論區的系統紀錄。 */
+.wish-times { margin-left: 5px; font-size: 11px; opacity: .75; }
+
+/* 提出者自己的那塊表單。外觀沿用 .edit-block，只改左緣顏色做區隔 */
+.wish-block { border-left: 3px solid var(--accent); }
+.wish-block > summary { color: var(--text); }
+
+/* 系統自動寫進討論的那幾條（改了希望時間）。⚠️ 要跟真人的留言分得開，
+   不然看起來像有人用「⚙ 系統紀錄」這個名字在留言。 */
+.comment.sys {
+  background: var(--surface-2); border-left: 2px solid var(--border);
+  padding-left: 8px; font-size: 12px;
+}
+.comment.sys .comment-head b { color: var(--muted); }
