@@ -13,6 +13,7 @@
 const fs = require( 'fs' );
 const path = require( 'path' );
 const zlib = require( 'zlib' );
+const https = require( 'https' );
 const crypto = require( 'crypto' );
 const { execFileSync } = require( 'child_process' );
 
@@ -29,9 +30,10 @@ const FILES = [ 'config.json', 'auth.json', 'data.json' ];
 
 // ── 小工具 ───────────────────────────────────────────────────────────────────
 
+// 用丟的而不是直接 process.exit —— push 失敗時進入點要先發完 TG 才能結束。
+class Fatal extends Error {}
 function die( msg ) {
-    console.error( '\n⛔ ' + msg + '\n' );
-    process.exit( 1 );
+    throw new Fatal( msg );
 }
 
 function git( args, opts ) {
@@ -239,13 +241,83 @@ function cmdRestore() {
     console.log( '   服務跑著的時候蓋 data.json，會被下一次寫入整份蓋回來，而且不會報錯。\n' );
 }
 
+// ── 失敗通知 ─────────────────────────────────────────────────────────────────
+
+// push 是排程器在背景跑的，失敗只會寫進 backup-vault.log —— 沒人會去看。
+// 所以失敗時私訊「全權管理者（members[].admin）裡有綁 TG 的人」（跟看板同一個 bot）。
+// ⛔ 不發群組 —— 備份失敗是管理者的事，一般成員收到也做不了什麼。
+// ⚠️ 這裡是外部邊界（網路、人手改的 json），失敗只記一行、不丟 —— 通知失敗不能蓋掉原本的錯誤。
+//    而且備份失敗的原因本身就可能是這幾個檔壞了，所以每個都要各自擋。
+// ⛔ 只管「跑了但失敗」。排程器根本沒在跑的話這裡不會執行，那要看 MANIFEST 的備份時間。
+function readJson( name ) {
+    try {
+        return JSON.parse( fs.readFileSync( path.join( ROOT, name ), 'utf8' ) );
+    } catch ( e ) {
+        console.error( `[tg] 讀不到 ${ name }，沒有發通知：${ e.message }` );
+        return null;
+    }
+}
+
+function notifyFailure( msg ) {
+    const config = readJson( 'config.json' );
+    const data = readJson( 'data.json' );
+    const auth = readJson( 'auth.json' );
+    if ( !config || !data || !auth ) return Promise.resolve();
+    const tg = config.telegram;
+    if ( !tg || !tg.enabled || !tg.botToken ) {
+        console.error( '[tg] config.json 的 telegram 沒啟用或缺 botToken，沒有發通知。' );
+        return Promise.resolve();
+    }
+    const subs = auth.subscribers || {};
+    const targets = ( data.members || [] ).filter( m => m.admin && subs[ m.id ] && subs[ m.id ].tgChatId );
+    if ( !targets.length ) {
+        console.error( '[tg] 沒有任何全權管理者綁了 TG，沒有發通知。' );
+        return Promise.resolve();
+    }
+    const text = `⛔ 工作看板加密備份失敗（${ stamp() }）\n\n${ msg.slice( 0, 1500 ) }\n\n詳細看 work-board/backup-vault.log`;
+    return Promise.all( targets.map( m => sendTo( tg.botToken, subs[ m.id ].tgChatId, text, m.name ) ) );
+}
+
+function sendTo( token, chatId, text, who ) {
+    const body = JSON.stringify( { chat_id: chatId, text } );
+    return new Promise( resolve => {
+        const req = https.request( {
+            hostname: 'api.telegram.org',
+            path: `/bot${ token }/sendMessage`,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength( body ) },
+            timeout: 15000,
+        }, res => {
+            let s = '';
+            res.on( 'data', c => s += c );
+            res.on( 'end', () => {
+                console.error( res.statusCode === 200 ? `[tg] 已發失敗通知 → ${ who }`
+                    : `[tg] 通知 ${ who } 失敗 HTTP ${ res.statusCode }：${ s.slice( 0, 200 ) }` );
+                resolve();
+            } );
+        } );
+        req.on( 'timeout', () => req.destroy( new Error( '逾時' ) ) );
+        req.on( 'error', e => { console.error( `[tg] 通知 ${ who } 失敗：${ e.message }` ); resolve(); } );
+        req.end( body );
+    } );
+}
+
 // ── 進入點 ───────────────────────────────────────────────────────────────────
 
 const cmd = process.argv[ 2 ];
-if ( cmd === 'init' ) cmdInit();
-else if ( cmd === 'push' ) cmdPush();
-else if ( cmd === 'verify' ) cmdVerify();
-else if ( cmd === 'restore' ) cmdRestore();
+const run = { init: cmdInit, push: cmdPush, verify: cmdVerify, restore: cmdRestore }[ cmd ];
+if ( run ) {
+    try {
+        run();
+    } catch ( e ) {
+        // git 失敗時 e.message 已經帶著 git 的 stderr，不用另外接。
+        const msg = e.message;
+        // 非 Fatal 的（git 失敗、程式本身的 bug）印完整堆疊；Fatal 是寫好的說明，印訊息就夠。
+        console.error( '\n⛔ ' + ( e instanceof Fatal ? msg : e.stack ) + '\n' );
+        process.exitCode = 1;
+        if ( cmd === 'push' ) notifyFailure( msg );
+    }
+}
 else {
     console.log( '用法: node backup-vault.js <init|push|verify|restore>' );
     console.log( '  init     第一次用，產一把金鑰（會叫你抄到密碼管理器）' );

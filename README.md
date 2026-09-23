@@ -1001,7 +1001,12 @@ schtasks /Create /TN "工作看板加密備份" /TR "D:\H5\_ai-tools\work-board\
 推上 GitHub 要用到 Windows 認證管理員裡的憑證，改成「不論是否登入都執行」反而會拿不到而失敗。
 反正看板服務本來就跑在這台登入的機器上。
 
-⚠️ **備份停掉是沒有人會通知你的。** 偶爾打開
+**跑了但失敗會發 TG**：`push` 出錯時（金鑰讀不到、git push 被拒、網路斷…）發一則到
+`config.json` 的 `telegram.chatId`，用的是看板同一個 bot。
+看板服務有沒有在跑都不影響（備份直接讀 `config.json`）；`telegram.enabled` 是 `false` 就不發。
+
+⚠️ **但「排程根本沒跑」是沒有人會通知你的**（關機、排程被刪、沒登入）—— 沒跑就沒有程式能發通知。
+偶爾打開
 [work-board-data 的 MANIFEST.txt](https://github.com/igs-boshuelin/work-board-data/blob/main/MANIFEST.txt)
 看一眼「備份時間」——⛔ 不要看 commit 的間隔，資料沒變本來就不會 commit。
 
@@ -1015,8 +1020,7 @@ schtasks /Create /TN "工作看板加密備份" /TR "D:\H5\_ai-tools\work-board\
 - **真的量工時**（現在「已做」是從上班時段推的，國定假日會多算）
 - **附件／貼圖**（現在需求要附圖只能貼 TG，圖跟單是分開的）
 - **重複性工作**（每週固定那種，現在要手動重開一張）
-- **備份失敗時用 TG 通知**（現在停掉只能靠自己去看 MANIFEST 的日期）
 
-已做掉的：搜尋（§4）、匯出 CSV（§8.6）—— 2026-09-21；加密異地備份（§8.7）—— 2026-09-23。
+已做掉的：搜尋（§4）、匯出 CSV（§8.6）—— 2026-09-21；加密異地備份＋失敗 TG 通知（§8.7）—— 2026-09-23。
 
 需要哪個再說。
