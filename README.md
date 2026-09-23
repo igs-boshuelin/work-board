@@ -933,16 +933,16 @@ GET /api/tasks                    # 同一份資料的 JSON（原始欄位，沒
 
 ---
 
-## 8.7 加密異地備份（GitHub）
+## 8.7 異地備份（GitHub，config 加密）
 
 `backup/` 跟 `data.json` 在同一顆硬碟，硬碟掛了兩份一起走。
-所以另外有一支把資料**加密後**推到第二個 private repo：
+所以另外有一支把資料推到第二個 private repo：
 [work-board-data](https://github.com/igs-boshuelin/work-board-data)。
 
 | | |
 |---|---|
 | 備份哪些 | `config.json`、`auth.json`、`data.json` 三個（都是被 gitignore 的那幾個） |
-| 怎麼包 | 三個檔 → 一包 JSON → gzip → **AES-256-GCM** → `vault.enc.json` |
+| 怎麼包 | **只有 `config.json` 加密**（botToken、adminPassword）：gzip → **AES-256-GCM** → `vault.enc.json`。<br>`auth.json`、`data.json` **明碼原樣放**，在 GitHub 上看得到每次改了什麼 |
 | 金鑰 | `vault.key`（64 個 16 進位字元）。⛔ **不進版控** |
 | 誰在跑 | Windows 工作排程器，呼叫 `備份到雲端.bat` |
 | 紀錄 | `backup-vault.log`（每跑一次一行；⚠️ 是 UTF-8，PowerShell 的 `Get-Content` 要加 `-Encoding UTF8` 才不會是亂碼） |
@@ -950,9 +950,15 @@ GET /api/tasks                    # 同一份資料的 JSON（原始欄位，沒
 **為什麼三個都備**：只備 `data.json` 的話，硬碟掛掉還是要重設所有人的密碼
 （`auth.json`）、重貼 botToken（`config.json`）。那是「還原得回來」跟「還原得回來但要花一個下午」的差別。
 
+**為什麼只加密 config**（2026-09-23 裁定）：工單與名冊是內部資料、沒有機密，repo 本身也是 private；
+真正外流會出事的只有 botToken（能冒用 bot）與 adminPassword（看板全權）。
+⚠️ `auth.json` 裡是密碼的 scrypt 雜湊（不是明碼），接受以明碼存放。
+⛔ **要把哪個檔從加密改成明碼前先想清楚**：明碼推上去就永遠在 git 歷史裡，事後改回加密也收不回來。
+（2026-09-23 之前的舊備份三個檔都在密文裡，`restore` 照樣讀得出來。）
+
 ### ⚠️⚠️ 金鑰不能只放在這台電腦上
 
-`vault.key` 遺失 ⇒ **雲端上所有備份都是永遠解不開的亂碼**，等於整套備份沒有做。
+`vault.key` 遺失 ⇒ **雲端上的 `config.json` 永遠解不開**（工單與密碼還在，但要重貼 botToken、重設 adminPassword）。
 所以那 64 個字元一定要另外抄一份到**密碼管理器**（或任何不在這顆硬碟上的地方）。
 換一把新金鑰也一樣 —— 舊的備份會全部解不開，要換請先把舊金鑰連同當下的
 `vault.enc.json` 另存一份。
@@ -969,8 +975,9 @@ node backup-vault.js restore    # 解到 restored/ 底下
 ⭐ **每次 push 都會「加密完立刻解回來對一次」才寫出去** —— 少了這一步，
 「備份有在跑」跟「備份解得開」是兩件事，而你會在需要它的那天才發現是後者。
 
-⭐ **內容跟上一次一樣就整個跳過，不產生 commit。** 比對的是**明文的雜湊**，
+⭐ **內容跟上一次一樣就整個跳過，不產生 commit。** 比對的是**明文的雜湊**（連同格式版本 `LAYOUT`），
 ⛔ 不能比密文 —— 每次 IV 都不一樣，密文必定不同，比密文等於什麼都沒改也天天 commit。
+⚠️ 所以有 commit 時 `vault.enc.json` 一定也會跟著變，就算 config 沒改 —— 看 diff 時忽略它就好。
 
 ### 還原
 
@@ -978,7 +985,7 @@ node backup-vault.js restore    # 解到 restored/ 底下
 node backup-vault.js restore
 ```
 
-三個檔會解到 `restored/`，**不會**直接蓋回去。⛔ 這是刻意的：
+三個檔會寫到 `restored/`（config 解密、其餘兩個從 repo 複製），**不會**直接蓋回去。⛔ 這是刻意的：
 看板服務跑著的時候蓋掉 `data.json`，記憶體裡那份會在下一次 `saveData()`
 把你還原的東西整份蓋回來，**而且不會有任何錯誤訊息**。
 要用的話：關掉服務 → 手動把 `restored/` 裡的檔複製過去 → 重開。

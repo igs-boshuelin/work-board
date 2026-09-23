@@ -1,5 +1,5 @@
-// 加密備份：把 config.json / auth.json / data.json 壓縮＋加密成一個檔，
-// 推到另一個 private repo（預設 ../work-board-data）。零依賴，只用 Node 內建模組。
+// 異地備份：config.json 壓縮＋加密成 vault.enc.json，auth.json / data.json 原樣複製，
+// 一起推到另一個 private repo（預設 ../work-board-data）。零依賴，只用 Node 內建模組。
 //
 //   node backup-vault.js init       產一把新金鑰（只有第一次做，⚠️ 會叫你去抄一份）
 //   node backup-vault.js push       備份＋commit＋push（工作排程器跑的就是這支）
@@ -27,6 +27,14 @@ const MANIFEST = path.join( VAULT_DIR, 'MANIFEST.txt' );
 
 // 要備份哪些檔。⚠️ 往後加不要插中間 —— restore 出來的目錄結構人會照著看。
 const FILES = [ 'config.json', 'auth.json', 'data.json' ];
+// 只有 config.json 加密（botToken、adminPassword）。其餘兩個是內部資料，
+// 2026-09-23 使用者裁定明碼存 —— 在 GitHub 上看得到每次改了什麼。
+// ⛔ 要把哪個檔改成明碼前先想清楚：明碼推上去就永遠在 git 歷史裡，事後改回加密也收不回來。
+const SECRET_FILES = [ 'config.json' ];
+const PLAIN_FILES = FILES.filter( n => SECRET_FILES.indexOf( n ) < 0 );
+// 儲存格式的版本，算進「沒變就跳過」的雜湊 —— 換格式時來源檔沒變也要重寫一次，
+// 否則舊格式的備份會一直留著（第一次改成部分明碼時就會踩到）。
+const LAYOUT = 2;
 
 // ── 小工具 ───────────────────────────────────────────────────────────────────
 
@@ -134,10 +142,12 @@ function cmdPush() {
     }
 
     const files = readSources();
-    const plain = Buffer.from( JSON.stringify( { v: 1, at: new Date().toISOString(), files } ), 'utf8' );
-    // ⚠️ 雜湊**只算 files**，不要算整包 —— 整包裡有時間戳，每次都不一樣，
+    const secret = {};
+    for ( const n of SECRET_FILES ) secret[ n ] = files[ n ];
+    const plain = Buffer.from( JSON.stringify( { v: 1, at: new Date().toISOString(), files: secret } ), 'utf8' );
+    // ⚠️ 雜湊**只算 files（＋格式版本）**，不要算整包 —— 整包裡有時間戳，每次都不一樣，
     //    下面那個「沒變就跳過」會永遠不成立，變成什麼都沒改也天天 commit。
-    const plainHash = sha256( Buffer.from( JSON.stringify( files ), 'utf8' ) );
+    const plainHash = sha256( Buffer.from( JSON.stringify( { layout: LAYOUT, files } ), 'utf8' ) );
 
     // 內容沒變就整個跳過。⚠️ 不能用密文比 —— 每次 IV 都不一樣，密文一定不同，
     //    比密文的話會變成「什麼都沒改也天天 commit」。
@@ -157,6 +167,12 @@ function cmdPush() {
     if ( !back.equals( plain ) ) die( '自我檢查失敗：加密後解回來跟原文對不上。沒有寫出任何東西。' );
 
     fs.writeFileSync( VAULT_FILE, JSON.stringify( env ), 'utf8' );
+    // 明碼的原樣放。來源不存在（全新安裝還沒有 auth.json）就把 repo 裡那份也拿掉，保持跟來源一致。
+    for ( const n of PLAIN_FILES ) {
+        const p = path.join( VAULT_DIR, n );
+        if ( files[ n ] === null ) { if ( fs.existsSync( p ) ) fs.unlinkSync( p ); }
+        else fs.writeFileSync( p, files[ n ], 'utf8' );
+    }
 
     // MANIFEST 是給人在 GitHub 網頁上「不解密也看得出備份有沒有在跑」用的。
     // ⛔ 只放不敏感的：時間、大小、單數。不要把內容摘要寫進來。
@@ -169,12 +185,12 @@ function cmdPush() {
         `密文大小: ${ fs.statSync( VAULT_FILE ).size } bytes`,
         '',
         '內含檔案:',
-        ...FILES.map( n => `  ${ n.padEnd( 14 ) } ${ files[ n ] === null ? '（不存在，沒備）' : files[ n ].length + ' 字元' }` ),
+        ...FILES.map( n => `  ${ n.padEnd( 14 ) } ${ files[ n ] === null ? '（不存在，沒備）' : files[ n ].length + ' 字元' }`
+            + `　${ SECRET_FILES.indexOf( n ) >= 0 ? '加密，在 vault.enc.json 裡' : '明碼' }` ),
         '',
         data ? `工單數: ${ data.tasks.length }　人員數: ${ ( data.members || [] ).length }　資料版本: v${ data.v }` : '',
         '',
-        '⚠️ 這個檔只是給人確認備份有在跑，真正的資料在 vault.enc.json 裡（加密）。',
-        '   怎麼解開：看這個 repo 的 README.md。',
+        '⚠️ 這個檔只是給人確認備份有在跑。怎麼還原：看這個 repo 的 README.md。',
     ];
     fs.writeFileSync( MANIFEST, lines.join( '\n' ) + '\n', 'utf8' );
 
@@ -188,6 +204,21 @@ function cmdPush() {
     console.log( `[${ stamp() }] 備份完成並已推上去（密文 ${ fs.statSync( VAULT_FILE ).size } bytes）。` );
 }
 
+// ── 讀回備份（verify / restore 共用）─────────────────────────────────────────
+
+// 解開 vault.enc.json，再疊上 repo 裡的明碼檔。
+// 舊格式（2026-09-23 之前，三個檔全在密文裡、沒有明碼檔）照樣讀得出來 —— 明碼檔不在就用密文裡那份。
+function readVault( key ) {
+    if ( !fs.existsSync( VAULT_FILE ) ) die( `找不到 ${ VAULT_FILE } —— 備份從來沒跑成功過。` );
+    const env = JSON.parse( fs.readFileSync( VAULT_FILE, 'utf8' ) );
+    const files = JSON.parse( zlib.gunzipSync( decrypt( env, key ) ).toString( 'utf8' ) ).files;
+    for ( const n of PLAIN_FILES ) {
+        const p = path.join( VAULT_DIR, n );
+        if ( fs.existsSync( p ) ) files[ n ] = fs.readFileSync( p, 'utf8' );
+    }
+    return { at: env.at, files };
+}
+
 // ── verify ───────────────────────────────────────────────────────────────────
 
 function cmdVerify() {
@@ -199,16 +230,12 @@ function cmdVerify() {
     git( [ 'fetch', '-q', 'origin' ] );
     git( [ 'reset', '-q', '--hard', 'origin/' + br ] );
 
-    if ( !fs.existsSync( VAULT_FILE ) ) die( '雲端上沒有 vault.enc.json —— 備份從來沒跑成功過。' );
-
-    const env = JSON.parse( fs.readFileSync( VAULT_FILE, 'utf8' ) );
-    const plain = zlib.gunzipSync( decrypt( env, key ) );
-    const obj = JSON.parse( plain.toString( 'utf8' ) );
+    const vault = readVault( key );
 
     console.log( '\n✓ 解得開，而且內容是合法的 JSON。' );
-    console.log( '  備份時間:', env.at );
+    console.log( '  備份時間:', vault.at );
     for ( const name of FILES ) {
-        const v = obj.files[ name ];
+        const v = vault.files[ name ];
         if ( v === null || v === undefined ) { console.log( `  ${ name.padEnd( 14 ) } —（沒有備到）` ); continue; }
         // 逐檔真的 parse 一次，不只看長度 —— 截斷一半的 JSON 長度也是有的。
         const o = JSON.parse( v );
@@ -226,17 +253,15 @@ function cmdRestore() {
     // ⛔ 刻意解到 restored/ 而不是直接蓋回去 —— 服務跑著的時候蓋掉 data.json，
     //    記憶體裡那份會在下一次 saveData() 把你還原的東西整份蓋回去，而且沒有任何錯誤訊息。
     //    要用哪一份請自己關掉服務再手動複製過去。
-    if ( !fs.existsSync( VAULT_FILE ) ) die( `找不到 ${ VAULT_FILE }` );
-    const env = JSON.parse( fs.readFileSync( VAULT_FILE, 'utf8' ) );
-    const obj = JSON.parse( zlib.gunzipSync( decrypt( env, key ) ).toString( 'utf8' ) );
+    const vault = readVault( key );
 
     fs.mkdirSync( out, { recursive: true } );
     for ( const name of FILES ) {
-        if ( obj.files[ name ] === null || obj.files[ name ] === undefined ) continue;
-        fs.writeFileSync( path.join( out, name ), obj.files[ name ], 'utf8' );
+        if ( vault.files[ name ] === null || vault.files[ name ] === undefined ) continue;
+        fs.writeFileSync( path.join( out, name ), vault.files[ name ], 'utf8' );
         console.log( '寫出', path.join( out, name ) );
     }
-    console.log( `\n備份時間: ${ env.at }` );
+    console.log( `\n備份時間: ${ vault.at }` );
     console.log( '⚠️ 這幾個檔**沒有**蓋回去。要用的話：先把看板服務關掉，再手動複製過去。' );
     console.log( '   服務跑著的時候蓋 data.json，會被下一次寫入整份蓋回來，而且不會報錯。\n' );
 }
