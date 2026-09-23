@@ -16,3 +16,13 @@ scratchpad/
 server-out.log
 server-err.log
 node_modules/
+
+# ⛔⛔ 加密備份的金鑰。進了 repo 等於備份沒加密。
+#     遺失＝雲端備份永遠解不開，所以要另外抄一份到密碼管理器。
+vault.key
+
+# backup-vault.js restore 解出來的地方（就是三個機密檔的明文）
+restored/
+
+# 排程器每次備份的紀錄（純執行紀錄，不含機密，但也沒必要進版控）
+backup-vault.log

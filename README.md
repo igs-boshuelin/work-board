@@ -27,6 +27,12 @@
 ⚠️ `auth.json`、`data.json`、`backup/` **不用手動生**，第一次啟動程式自己會建。
 ⛔ 反過來說這三個也不要手改、不要進版控 —— 服務跑著的時候程式會整份覆蓋回去（見 §8）。
 
+⛔ **你其實是在「還原」而不是「全新裝」的話，不要走上面這五步。**
+舊的工單、名冊、密碼都在加密備份裡，照第 2 步重新生一份 `config.json` 等於從零開始。
+還原的流程在 §8.7（以及 work-board-data 那個 repo 的 README）。
+
+⭐ 全新裝完之後，**順手把加密異地備份也接上** —— 那是獨立的一支，跟上面五步無關。→ §8.7
+
 ---
 
 ## 1. 啟動
@@ -927,6 +933,80 @@ GET /api/tasks                    # 同一份資料的 JSON（原始欄位，沒
 
 ---
 
+## 8.7 加密異地備份（GitHub）
+
+`backup/` 跟 `data.json` 在同一顆硬碟，硬碟掛了兩份一起走。
+所以另外有一支把資料**加密後**推到第二個 private repo：
+[work-board-data](https://github.com/igs-boshuelin/work-board-data)。
+
+| | |
+|---|---|
+| 備份哪些 | `config.json`、`auth.json`、`data.json` 三個（都是被 gitignore 的那幾個） |
+| 怎麼包 | 三個檔 → 一包 JSON → gzip → **AES-256-GCM** → `vault.enc.json` |
+| 金鑰 | `vault.key`（64 個 16 進位字元）。⛔ **不進版控** |
+| 誰在跑 | Windows 工作排程器，呼叫 `備份到雲端.bat` |
+| 紀錄 | `backup-vault.log`（每跑一次一行；⚠️ 是 UTF-8，PowerShell 的 `Get-Content` 要加 `-Encoding UTF8` 才不會是亂碼） |
+
+**為什麼三個都備**：只備 `data.json` 的話，硬碟掛掉還是要重設所有人的密碼
+（`auth.json`）、重貼 botToken（`config.json`）。那是「還原得回來」跟「還原得回來但要花一個下午」的差別。
+
+### ⚠️⚠️ 金鑰不能只放在這台電腦上
+
+`vault.key` 遺失 ⇒ **雲端上所有備份都是永遠解不開的亂碼**，等於整套備份沒有做。
+所以那 64 個字元一定要另外抄一份到**密碼管理器**（或任何不在這顆硬碟上的地方）。
+換一把新金鑰也一樣 —— 舊的備份會全部解不開，要換請先把舊金鑰連同當下的
+`vault.enc.json` 另存一份。
+
+### 指令
+
+```bash
+node backup-vault.js init       # 只有第一次：產金鑰，並印出來叫你去抄
+node backup-vault.js push       # 備份＋commit＋push（排程器跑的就是這支）
+node backup-vault.js verify     # 把雲端那份抓下來解開，確認真的還原得回來
+node backup-vault.js restore    # 解到 restored/ 底下
+```
+
+⭐ **每次 push 都會「加密完立刻解回來對一次」才寫出去** —— 少了這一步，
+「備份有在跑」跟「備份解得開」是兩件事，而你會在需要它的那天才發現是後者。
+
+⭐ **內容跟上一次一樣就整個跳過，不產生 commit。** 比對的是**明文的雜湊**，
+⛔ 不能比密文 —— 每次 IV 都不一樣，密文必定不同，比密文等於什麼都沒改也天天 commit。
+
+### 還原
+
+```bash
+node backup-vault.js restore
+```
+
+三個檔會解到 `restored/`，**不會**直接蓋回去。⛔ 這是刻意的：
+看板服務跑著的時候蓋掉 `data.json`，記憶體裡那份會在下一次 `saveData()`
+把你還原的東西整份蓋回來，**而且不會有任何錯誤訊息**。
+要用的話：關掉服務 → 手動把 `restored/` 裡的檔複製過去 → 重開。
+
+（在一台全新的電腦上還原的完整步驟寫在 work-board-data 的 README，
+那份跟備份放在一起，硬碟掛掉時你手上就只剩它。）
+
+### 設定工作排程器
+
+在 PowerShell 跑這一行（只要做一次）：
+
+```
+schtasks /Create /TN "工作看板加密備份" /TR "D:\H5\_ai-tools\work-board\備份到雲端.bat" /SC HOURLY /MO 3 /ST 09:00 /F
+```
+
+每 3 小時跑一次（09、12、15、18、21、00、03、06）。半夜那幾次因為資料沒變會直接跳過，
+不會產生 commit，成本只有 log 裡多一行。
+
+⚠️ **只有在你登入著的時候會跑**（schtasks 的預設）。這是刻意的 ——
+推上 GitHub 要用到 Windows 認證管理員裡的憑證，改成「不論是否登入都執行」反而會拿不到而失敗。
+反正看板服務本來就跑在這台登入的機器上。
+
+⚠️ **備份停掉是沒有人會通知你的。** 偶爾打開
+[work-board-data 的 MANIFEST.txt](https://github.com/igs-boshuelin/work-board-data/blob/main/MANIFEST.txt)
+看一眼「備份時間」——⛔ 不要看 commit 的間隔，資料沒變本來就不會 commit。
+
+---
+
 ## 9. 之後可以加的
 
 - **雙向 bot**：編導直接在 TG 提需求 / 查進度（要多做一個 long-polling 迴圈）
@@ -935,8 +1015,8 @@ GET /api/tasks                    # 同一份資料的 JSON（原始欄位，沒
 - **真的量工時**（現在「已做」是從上班時段推的，國定假日會多算）
 - **附件／貼圖**（現在需求要附圖只能貼 TG，圖跟單是分開的）
 - **重複性工作**（每週固定那種，現在要手動重開一張）
-- **異地備份**（`backup/` 跟 `data.json` 在同一顆硬碟，硬碟掛了兩份一起走）
+- **備份失敗時用 TG 通知**（現在停掉只能靠自己去看 MANIFEST 的日期）
 
-已做掉的：搜尋（§4）、匯出 CSV（§8.6）—— 2026-09-21。
+已做掉的：搜尋（§4）、匯出 CSV（§8.6）—— 2026-09-21；加密異地備份（§8.7）—— 2026-09-23。
 
 需要哪個再說。
