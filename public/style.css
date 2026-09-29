@@ -410,6 +410,9 @@ textarea { resize: vertical; }
 }
 .people-card:hover { border-color: var(--accent); transform: translateY(-1px); }
 .people-card.muted { background: var(--surface-2); box-shadow: none; }
+/* 人員牆拖曳排序（只有全權管理者的卡有 draggable） */
+.people-card.dragging { opacity: .4; }
+.people-card.drop-target { border: 2px dashed var(--accent); padding: 13px 14px; }
 
 .people-head { display: flex; align-items: center; gap: 10px; }
 .people-icon { font-size: 22px; line-height: 1; }

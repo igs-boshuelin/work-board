@@ -324,6 +324,7 @@ function renderPeople() {
             name: m.name,
             sub: m.id === meta.who ? '你自己' : '',
             edit: meta.fullAdmin ? m.id : '',
+            drag: meta.fullAdmin ? m.id : '',
             action: setupActionHTML( m ),
             stats: [
                 { n: own.filter( t => t.status === 'doing' ).length, label: '進行中' },
@@ -405,6 +406,30 @@ function renderPeople() {
     $$( '#people-grid [data-edit]' ).forEach( b =>
         b.addEventListener( 'click', () => openMemberModal( b.dataset.edit ) ) );
 
+    $$( '#people-grid [data-member]' ).forEach( el => {
+        el.addEventListener( 'dragstart', e => {
+            peopleDragId = el.dataset.member;
+            el.classList.add( 'dragging' );
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData( 'text/plain', peopleDragId );
+        } );
+        el.addEventListener( 'dragover', e => {
+            if ( !peopleDragId || peopleDragId === el.dataset.member ) return;
+            e.preventDefault();
+            el.classList.add( 'drop-target' );
+        } );
+        el.addEventListener( 'dragleave', () => el.classList.remove( 'drop-target' ) );
+        el.addEventListener( 'drop', e => {
+            e.preventDefault();
+            el.classList.remove( 'drop-target' );
+            dropPerson( el.dataset.member );
+        } );
+        el.addEventListener( 'dragend', () => {
+            peopleDragId = null;
+            $$( '#people-grid .people-card' ).forEach( c => c.classList.remove( 'dragging', 'drop-target' ) );
+        } );
+    } );
+
     $$( '#people-grid [data-setup]' ).forEach( b =>
         b.addEventListener( 'click', () => issueSetup( b.dataset.setup ) ) );
     $$( '#people-grid [data-revoke]' ).forEach( b =>
@@ -418,8 +443,33 @@ function renderPeople() {
         } ) );
 }
 
+let peopleDragId = null;
+
+// 人員牆只拖得到程式的卡，但名冊裡編導也在同一串 —— 編導留在原本的位置，
+// 程式的那幾格照新順序填回去，再把「全部人」送出去（伺服器要的是完整名單）。
+async function dropPerson( targetId ) {
+    const dragId = peopleDragId;
+    peopleDragId = null;
+    if ( !dragId || dragId === targetId ) return;
+
+    const devs = devMembers().map( m => m.id );
+    const from = devs.indexOf( dragId );
+    const to = devs.indexOf( targetId );
+    devs.splice( from, 1 );
+    // 往後拖時落在目標「後面」，否則等於沒動（跟工單拖曳同一個規則）
+    devs.splice( devs.indexOf( targetId ) + ( from < to ? 1 : 0 ), 0, dragId );
+
+    let k = 0;
+    const ids = meta.members.map( m => m.role === 'director' ? m.id : devs[ k++ ] );
+    try {
+        await api( '/api/members/order', { method: 'POST', body: { ids } } );
+    } catch ( err ) { toast( err.message, true ); }
+    await refresh();
+}
+
 function peopleCardHTML( c ) {
-    return `<article class="people-card${ c.muted ? ' muted' : '' }" data-href="${ esc( c.href ) }">
+    return `<article class="people-card${ c.muted ? ' muted' : '' }" data-href="${ esc( c.href ) }"
+        ${ c.drag ? `draggable="true" data-member="${ esc( c.drag ) }" title="拖曳可以調整順序"` : '' }>
         <div class="people-head">
             <span class="people-icon">${ c.icon }</span>
             <div>
@@ -506,7 +556,7 @@ function openMemberModal( id, newDirector ) {
             <span>全權管理者（能排所有人的單、發起始碼、推播）</span>
         </label>
         <div class="modal-actions">
-            ${ m ? '<button class="btn danger" id="mem-del">移除</button>' : '' }
+            ${ m && m.id !== meta.who ? '<button class="btn danger" id="mem-del">移除</button>' : '' }
             <button class="btn primary" id="mem-save">${ m ? '儲存' : '新增' }</button>
         </div>`;
     $( '#modal' ).classList.remove( 'hidden' );
@@ -529,7 +579,8 @@ function openMemberModal( id, newDirector ) {
         toast( m ? '已更新' : '已新增，記得發一組起始碼給他' );
     } );
 
-    if ( m ) $( '#mem-del' ).addEventListener( 'click', async () => {
+    // 自己的視窗沒有移除鈕：移除＝連帳號一起刪，刪自己就再也登不進來
+    if ( m && m.id !== meta.who ) $( '#mem-del' ).addEventListener( 'click', async () => {
         if ( !confirm( `移除 ${ m.name }？他的密碼與排程紀錄都會一起刪掉。名下還有單的話會擋下來。` ) ) return;
         try {
             await api( `/api/members/${ encodeURIComponent( m.id ) }`, { method: 'DELETE' } );

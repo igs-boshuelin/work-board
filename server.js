@@ -1339,6 +1339,23 @@ async function handleApi( req, res, urlPath, query ) {
         return send( res, 200, { member: m } );
     }
 
+    // 人員牆拖曳排序。送的是「全部人」的新順序（含編導），不是只送有動的那幾個 ——
+    // 這樣伺服器只要確認名單剛好等於現有名冊，就不會有人因為前端漏送而被刪掉或重複。
+    // ⚠️ 要放在 mMember 前面：/api/members/order 也吻合那個 regex。
+    if ( urlPath === '/api/members/order' && method === 'POST' ) {
+        if ( !isAdmin( req ) ) return send( res, 403, { error: '只有管理者能排人員順序' } );
+        const b = await readBody( req );
+        const ids = Array.isArray( b.ids ) ? b.ids.map( String ) : null;
+        const same = ids && ids.length === data.members.length
+            && new Set( ids ).size === ids.length
+            && ids.every( id => isMember( id ) );
+        // 名冊在別的視窗剛被改過（新增／移除）就會對不上 —— 叫他重新整理，不要猜著合併
+        if ( !same ) return send( res, 409, { error: '人員名單剛被改過，請重新整理再拖一次' } );
+        data.members = ids.map( id => findMember( id ) );
+        saveData();
+        return send( res, 200, { ok: true } );
+    }
+
     const mMember = urlPath.match( /^\/api\/members\/([\w-]+)$/ );
 
     if ( mMember && method === 'PATCH' ) {
@@ -1380,6 +1397,8 @@ async function handleApi( req, res, urlPath, query ) {
         if ( !isAdmin( req ) ) return send( res, 403, { error: '只有管理者能移除人員' } );
         const id = mMember[ 1 ];
         if ( !isMember( id ) ) return send( res, 404, { error: '沒有這個人員' } );
+        // 移除＝連帳號一起刪，刪自己等於當場把自己鎖在外面（2026-09-29 知博就是這樣沒的）
+        if ( session( req ).who === id ) return send( res, 409, { error: '不能移除自己，請另一位管理者來移除' } );
         if ( data.members.length <= 1 ) return send( res, 409, { error: '至少要留一個人' } );
 
         // 名下還有單就不給移除。直接刪掉的話那些單會指向一個不存在的人：
