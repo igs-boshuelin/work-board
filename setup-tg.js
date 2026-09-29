@@ -41,7 +41,7 @@ function die( msg ) {
     const config = JSON.parse( fs.readFileSync( CONFIG_PATH, 'utf8' ).replace( /^﻿/, '' ) );
     const token = config.telegram.botToken;
 
-    console.log( '\n=== 工作看板 · TG bot 設定 ===\n' );
+    console.log( '\n=== 接單看板 · TG bot 設定 ===\n' );
 
     if ( !token ) {
         console.log( '還沒有 botToken。請先：' );
@@ -100,7 +100,7 @@ function die( msg ) {
 
     const body = JSON.stringify( {
         chat_id: chat.id,
-        text: '✅ 工作看板連上了。之後估時或預計完成日有異動就會推到這裡。',
+        text: '✅ 接單看板連上了。之後估時或預計完成日有異動就會推到這裡。',
     } );
     await new Promise( ( resolve, reject ) => {
         const req = https.request( {

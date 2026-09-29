@@ -178,7 +178,7 @@ function cmdPush() {
     // ⛔ 只放不敏感的：時間、大小、單數。不要把內容摘要寫進來。
     const data = files[ 'data.json' ] ? JSON.parse( files[ 'data.json' ] ) : null;
     const lines = [
-        '工作看板 加密備份',
+        '接單看板 加密備份',
         '',
         `備份時間: ${ stamp() }`,
         `來源雜湊: ${ plainHash }`,
@@ -299,7 +299,7 @@ function notifyFailure( msg ) {
         console.error( '[tg] 沒有任何全權管理者綁了 TG，沒有發通知。' );
         return Promise.resolve();
     }
-    const text = `⛔ 工作看板加密備份失敗（${ stamp() }）\n\n${ msg.slice( 0, 1500 ) }\n\n詳細看 work-board/backup-vault.log`;
+    const text = `⛔ 接單看板加密備份失敗（${ stamp() }）\n\n${ msg.slice( 0, 1500 ) }\n\n詳細看 work-board/backup-vault.log`;
     return Promise.all( targets.map( m => sendTo( tg.botToken, subs[ m.id ].tgChatId, text, m.name ) ) );
 }
 

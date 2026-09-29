@@ -1,6 +1,6 @@
 'use strict';
 
-// 工作看板 —— 零依賴 Node HTTP 服務
+// 接單看板 —— 零依賴 Node HTTP 服務
 //   /            公開看板：任何人可新增需求、留言、看進度
 //   /api/*       JSON API；寫入排序/估時/完成日需要 admin token
 //   TG bot       估時或預計完成日有異動時，batch 後推播到群組
@@ -698,7 +698,7 @@ async function pollLoop() {
             const m = msg.text.trim().match( /^\/(?:start|bind)(?:@\S+)?\s+([A-Za-z0-9]{6})$/ );
             if ( !m ) {
                 if ( /^\/(start|bind)\b/.test( msg.text ) ) {
-                    await tgSend( '請從工作看板網頁點「訂閱通知」拿一組 6 碼，再送 <code>/bind 你的碼</code>。', msg.chat.id );
+                    await tgSend( '請從接單看板網頁點「訂閱通知」拿一組 6 碼，再送 <code>/bind 你的碼</code>。', msg.chat.id );
                 }
                 continue;
             }
@@ -2257,7 +2257,7 @@ setInterval( checkDueSoon, 60 * 1000 );
 
 server.listen( config.port, '0.0.0.0', () => {
     console.log( '────────────────────────────────────' );
-    console.log( ' 工作看板已啟動' );
+    console.log( ' 接單看板已啟動' );
     console.log( `   本機   http://localhost:${ config.port }` );
     for ( const ip of localIPs() ) console.log( `   內網   http://${ ip }:${ config.port }` );
     console.log( ` TG 推播 ${ config.telegram.enabled ? '已啟用' : '未啟用（改 config.json）' }` );
