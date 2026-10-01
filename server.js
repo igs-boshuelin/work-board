@@ -948,6 +948,36 @@ const WORK = ( () => {
     };
 } )();
 
+// 國定假日與補班（holidays.json，由 update-holidays.js 從人事行政總處的表產生）。
+// 只記「跟 workdays 不一樣」的日子：off ＝ 平日放假，on ＝ 週末補班。
+// ⚠️ 開機讀一次 —— 跑完 update-holidays.js 要重開服務。
+const HOLIDAYS = ( () => {
+    const file = path.join( ROOT, 'holidays.json' );
+    if ( !fs.existsSync( file ) ) {
+        console.error( '\n❌ 找不到 holidays.json —— 跑 `node update-holidays.js` 產一份（它在 git 裡，正常不會缺）\n' );
+        process.exit( 1 );
+    }
+    const h = JSON.parse( fs.readFileSync( file, 'utf8' ) );
+    const now = new Date();
+    const need = [ now.getFullYear() ];
+    // 明年的表總處 6～7 月才公布，8 月起才催 —— 太早催只是噪音
+    if ( now.getMonth() >= 7 ) need.push( now.getFullYear() + 1 );
+    const miss = need.filter( y => h.years.indexOf( y ) < 0 );
+    if ( miss.length ) {
+        console.warn( `\n⚠️ holidays.json 沒有 ${ miss.join( '、' ) } 年 —— 那幾年的國定假日會被當成上班日。`
+            + '\n   跑 `node update-holidays.js` 再重開服務。\n' );
+    }
+    return { off: h.off, on: h.on, years: h.years };
+} )();
+
+// 那一天要不要上班：補班 > 放假 > 平常的星期幾
+function isWorkday( d ) {
+    const k = ymdLocal( d );
+    if ( k in HOLIDAYS.on ) return true;
+    if ( k in HOLIDAYS.off ) return false;
+    return WORK.workdays.indexOf( d.getDay() ) >= 0;
+}
+
 // 固定會議：每週某天的某個時段不能拿來做單。手改 config.json，程式不會去寫它。
 // 不放 data.json 是因為沒有任何 UI 會改它 —— 跟 workHours 一樣屬於「環境設定」。
 const MEETINGS = ( config.meetings || [] ).map( ( m, i ) => {
@@ -1013,7 +1043,7 @@ function projectQueue( queue, who ) {
                 throw new Error( '完成日推估跑不完：檢查 config.json 的 workHours 與 meetings，'
                     + '以及名下有沒有哪張單的估時多打了幾位數' );
             }
-            const workday = WORK.workdays.indexOf( cur.getDay() ) >= 0;
+            const workday = isWorkday( cur );
             const blk = workday && freeBlocks( cur, who ).find( b => cursor < b.end );
             if ( !blk ) {
                 cur.setDate( cur.getDate() + 1 );
@@ -1110,7 +1140,7 @@ const DUE_SOON_MIN = ( () => {
 
 // 現在是不是上班時間（只看正常工時，⛔ 不扣會議 —— 開會中也是上班，訊息照收）
 function isWorkingAt( d ) {
-    if ( WORK.workdays.indexOf( d.getDay() ) < 0 ) return false;
+    if ( !isWorkday( d ) ) return false;
     const m = d.getHours() * 60 + d.getMinutes();
     return WORK.normal.some( b => m >= b.start && m < b.end );
 }
@@ -1509,6 +1539,7 @@ async function handleApi( req, res, urlPath, query ) {
             } ),
             defaultOwner: defaultOwner(),
             workHours: WORK,   // 工時只有一份定義，前後端都吃這個
+            holidays: { off: HOLIDAYS.off, on: HOLIDAYS.on },   // 同理：前端算「這一輪做了多久」也要跳過假日
             meetings: MEETINGS,   // 固定會議同理，前端畫的格子要跟推估用的同一份
             telegramEnabled: !!config.telegram.enabled,
             // ⭐ 能力旗標：這台後端有沒有 PATCH /api/tasks/:id/wish。

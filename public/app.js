@@ -999,8 +999,25 @@ function workMinutesOnDay( date, from, to, who ) {
     return n;
 }
 
+// 國定假日與補班。定義在 holidays.json，開機後由 meta 帶進來（跟伺服器推估用同一份）。
+let HOLIDAYS = { off: {}, on: {} };
+let WORKDAYS = [ 1, 2, 3, 4, 5 ];
+
+function applyHolidays( m ) {
+    WORKDAYS = m.workHours.workdays;
+    // ⚠️ 舊後端（還沒重開）的 meta 沒有 holidays —— 那段時間照舊只跳週末，不要整頁壞掉
+    HOLIDAYS = m.holidays || { off: {}, on: {} };
+}
+
+// 那一天要不要上班：補班 > 放假 > 平常的星期幾（跟 server.js 的 isWorkday 同一套規則）
+function isWorkday( date ) {
+    if ( date in HOLIDAYS.on ) return true;
+    if ( date in HOLIDAYS.off ) return false;
+    return WORKDAYS.indexOf( new Date( `${ date }T00:00:00` ).getDay() ) >= 0;
+}
+
 // 兩個時間戳之間真正算上班的分鐘數，會跨天。拿來推「這一輪做掉多久」。
-// ⚠️ 假日直接跳過（BLOCKS 是上班時段，週末沒有）。國定假日不知道，會多算一天 ——
+// ⚠️ 放假日跳過（含國定假日，見 isWorkday）。請假、臨時停班這種表上沒有的還是會多算 ——
 //    所以這個數字只拿來當**預設值**，送出前一定讓人改，⛔ 不要拿它直接寫進 estimate。
 function workMinutesSpan( fromISO, toISO, who ) {
     const first = localDate( fromISO );
@@ -1014,8 +1031,7 @@ function workMinutesSpan( fromISO, toISO, who ) {
     for ( let i = 0; i < 400; i++ ) {
         const date = `${ d.getFullYear() }-${ String( d.getMonth() + 1 ).padStart( 2, '0' ) }-${ String( d.getDate() ).padStart( 2, '0' ) }`;
         if ( date > last ) break;
-        const dow = d.getDay();
-        if ( dow !== 0 && dow !== 6 ) {
+        if ( isWorkday( date ) ) {
             n += workMinutesOnDay( date,
                 date === first ? localMin( fromISO ) : 0,
                 date === last ? localMin( toISO ) : 24 * 60, who );
@@ -1942,6 +1958,7 @@ async function refresh() {
     }
     dataLoaded = true;
     applyWorkHours( meta.workHours );
+    applyHolidays( meta );
     renderWorkHoursText();
     // 說明頁那句「提前 N 分鐘」。⚠️ meta 是網路邊界：舊後端沒有這個欄位 ⇒ 整句括號不畫，
     //    ⛔ 不要讓它印出「提前 undefined 分鐘」。
@@ -2115,7 +2132,7 @@ function openCatchUpModal( date, items ) {
 
 // 改了 index.html 裡那份「🆕 最近更新」就把這個字串換掉 —— 它只是用來讓「說明」
 // 按鈕上的紅點重新亮起來，每個人各自看過各自的（存在他自己的瀏覽器裡，不進伺服器）。
-const HELP_VERSION = '2026-09-21b';
+const HELP_VERSION = '2026-10-01';
 
 function syncHelpDot() {
     $( '#help-dot' ).classList.toggle( 'hidden', store.helpSeen === HELP_VERSION );
