@@ -2132,6 +2132,7 @@ async function handleApi( req, res, urlPath, query ) {
     }
 
     // 手動立刻推播目前排程 —— 這則還是發到群組（週會前用）
+    // ⚠️ 網頁上的 📣 按鈕 2026-10-01 先拿掉了（群組還是測試群），API 留著等換正式群再接回去。
     if ( urlPath === '/api/notify' && method === 'POST' ) {
         if ( !isAdmin( req ) ) return send( res, 403, { error: '只有管理者能推播' } );
         if ( notifyTimer ) { clearTimeout( notifyTimer ); notifyTimer = null; }

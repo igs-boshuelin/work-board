@@ -18,7 +18,7 @@
     <span id="whoami" class="who"></span>
     <button id="btn-help" class="btn ghost" title="怎麼用、最近更新了什麼">❓ 說明<span id="help-dot" class="help-dot hidden"></span></button>
     <button id="btn-sub" class="btn ghost" title="你提的需求有異動時，TG 私訊通知你">🔔 訂閱通知</button>
-    <button id="btn-notify" class="btn ghost hidden" title="立刻把目前排程推到 TG 群">📣 推播</button>
+    <!-- 📣 推播（把排程推到 TG 群組）2026-10-01 先拿掉：群組還是測試群。要放回來照 git log 那筆還原 -->
     <button id="btn-admin" class="btn ghost">🔑 管理模式</button>
   </div>
 </header>
@@ -172,7 +172,8 @@
           <span>追蹤範圍 <b class="req">*</b></span>
           <div id="sub-scopes" class="sub-scopes"></div>
         </div>
-        <label class="check">
+        <!-- 只對 📣 推播有作用 —— 按鈕拿掉期間一起藏起來（保留 input：送出時還要讀它，舊設定才不會被洗掉） -->
+        <label class="check hidden">
           <input type="checkbox" name="tagInGroup">
           管理者手動推整份排程到群組時，也 @ 我一下
         </label>
@@ -491,7 +492,7 @@
           被推遲的那幾張會各自通知它們的提出者。
         </li>
         <li>同一個欄位在彙整期間改好幾次只留<b>最初 → 最後</b>；改過去又改回來＝不發通知。</li>
-        <li>逐筆異動<b>只走個人私訊</b>，群組只會收到管理者按 <b>📣 推播</b> 的那一則。</li>
+        <li>通知<b>只走個人私訊</b>，不會發到群組。</li>
         <li><b>自己動的不會回頭吵自己</b>（自己開單給自己、自己撿走無主單 → 不發）。</li>
       </ul>
     </details>
@@ -509,7 +510,7 @@
         <tr><td>改標題／專案／說明／備註</td><td>❌</td><td>❌</td><td>✅</td><td>✅</td></tr>
         <tr><td>刪除</td><td>❌</td><td>❌</td><td>✅</td><td>✅</td></tr>
         <tr><td>轉派給別人</td><td>❌</td><td>❌</td><td>❌</td><td>✅</td></tr>
-        <tr><td>加減人員、發起始碼、手動推播</td><td>❌</td><td>❌</td><td>❌</td><td>✅</td></tr>
+        <tr><td>加減人員、調人員順序、發起始碼</td><td>❌</td><td>❌</td><td>❌</td><td>✅</td></tr>
       </table>
       <p class="hint">
         <b>編導</b>也是名冊上的帳號，只是不接單、沒有自己的看板，也不會出現在負責人選單裡。<br>

@@ -553,7 +553,7 @@ function openMemberModal( id, newDirector ) {
         </div>
         <label class="check mem-check">
             <input type="checkbox" id="mem-admin" ${ m && m.admin ? 'checked' : '' }>
-            <span>全權管理者（能排所有人的單、發起始碼、推播）</span>
+            <span>全權管理者（能排所有人的單、加減人員、發起始碼）</span>
         </label>
         <div class="modal-actions">
             ${ m && m.id !== meta.who ? '<button class="btn danger" id="mem-del">移除</button>' : '' }
@@ -1949,12 +1949,10 @@ async function refresh() {
     applyMeetings( meta.meetings );
 
     // meta.admin 是「有東西可以編輯」，meta.fullAdmin 才是「可以改所有人的」。
-    // 推播是全體的事，所以掛在 fullAdmin 上。
     const whoName = meta.who ? ( meta.members.find( m => m.id === meta.who ) || {} ).name : '';
     $( '#whoami' ).textContent = !meta.admin ? '瀏覽模式' : ( whoName || '管理模式' );
     $( '#whoami' ).classList.toggle( 'admin', meta.admin );
     $( '#btn-admin' ).textContent = meta.admin ? '🔓 登出' : '🔑 管理模式';
-    $( '#btn-notify' ).classList.toggle( 'hidden', !meta.fullAdmin );
     // TG 沒開就沒有訂閱可言，按了只會得到錯誤訊息
     $( '#btn-sub' ).classList.toggle( 'hidden', !meta.telegramEnabled );
 
@@ -2187,16 +2185,6 @@ function init() {
     $( '#sub-form' ).addEventListener( 'submit', submitSub );
     $( '#sub-modal' ).addEventListener( 'click', e => {
         if ( e.target.id === 'sub-modal' ) closeSubModal();
-    } );
-
-    $( '#btn-notify' ).addEventListener( 'click', async () => {
-        if ( !confirm( '立刻把目前排程推播到 TG 群？' ) ) return;
-        try {
-            await api( '/api/notify', { method: 'POST' } );
-            toast( meta.telegramEnabled ? '已推播' : 'TG 未啟用，內容印在 server console' );
-        } catch ( err ) {
-            toast( err.message, true );
-        }
     } );
 
     [ '#filter-project', '#filter-requester', '#filter-done' ].forEach( s =>
