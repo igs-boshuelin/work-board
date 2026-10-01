@@ -680,9 +680,12 @@ async function pollLoop() {
     }
     botUsername = me.username || '';
     console.log( `[tg] 綁定服務已啟動 @${ botUsername }` );
+    // TG 輸入框打 / 會跳出來的選單。只設在私訊 —— 群組裡這些指令都不認。
+    await tgApi( 'setMyCommands', { commands: BOT_COMMANDS, scope: { type: 'all_private_chats' } } );
 
     while ( !pollStop ) {
-        const ups = await tgApi( 'getUpdates', { offset: tgOffset, timeout: 50 } );
+        // ⚠️ allowed_updates 要明講：TG 會記住上一次給的值，哪天有人只給了 message，按鈕就再也收不到
+        const ups = await tgApi( 'getUpdates', { offset: tgOffset, timeout: 50, allowed_updates: [ 'message', 'callback_query' ] } );
         if ( !ups ) {
             // 連線壞掉時不要空轉打爆 API
             await new Promise( r => setTimeout( r, 5000 ) );
@@ -690,23 +693,362 @@ async function pollLoop() {
         }
         for ( const u of ups ) {
             tgOffset = u.update_id + 1;
-            const msg = u.message;
-            if ( !msg || !msg.text || !msg.from || !msg.chat ) continue;
-            // 只認私訊。群組裡喊綁定會把 chat id 存成群組，之後「私訊」會發到整群去。
-            if ( msg.chat.type !== 'private' ) continue;
-
-            const m = msg.text.trim().match( /^\/(?:start|bind)(?:@\S+)?\s+([A-Za-z0-9]{6})$/ );
-            if ( !m ) {
-                if ( /^\/(start|bind)\b/.test( msg.text ) ) {
-                    await tgSend( '請從接單看板網頁點「訂閱通知」拿一組 6 碼，再送 <code>/bind 你的碼</code>。', msg.chat.id );
-                }
-                continue;
+            // ⚠️ 這是使用者輸入的邊界：一則訊息處理到炸掉，⛔ 不可以把整個迴圈帶走 ——
+            //    迴圈一停，綁定、/new、按鈕全部靜掉，而且要到有人抱怨才會發現。
+            //    所以這裡接住，但**不是吞掉**：stack 印出來，也回那個人一句「出錯了」。
+            try {
+                await handleUpdate( u );
+            } catch ( e ) {
+                console.error( '[tg] 處理這則訊息時出錯', JSON.stringify( u ).slice( 0, 300 ), '\n', e );
+                const chat = ( u.message && u.message.chat ) || ( u.callback_query && u.callback_query.message && u.callback_query.message.chat );
+                if ( chat ) await tgSend( '⚠️ 看板這邊出錯了，這一步沒有完成。請改用網頁，並跟柏學說一聲。', chat.id );
             }
-            const sub = completeBind( m[ 1 ].toUpperCase(), msg.from, msg.chat );
-            await tgSend( sub
-                ? `✅ 訂閱完成，之後「${ esc( sub.label ) }」的需求有異動就會通知你。\n要取消請回網頁點「取消訂閱」。`
-                : '這組碼不對或已經過期了，回網頁重新產生一組。', msg.chat.id );
         }
+    }
+}
+
+// ── TG 雙向：在私訊裡提需求、查進度（2026-10-01）────────────────────────────
+
+// 身分**只**從綁定來：chat id 對到 auth.subscribers 裡的哪個帳號。
+// 綁定那一步是登入網頁之後拿碼才做得到的 ⇒ 這裡等於已經驗過身分，不用再問密碼。
+// ⛔ 不要改成比 TG 的名字／username —— 那個誰都改得了。
+const BOT_COMMANDS = [
+    { command: 'new', description: '提需求（一步一步問）' },
+    { command: 'my', description: '我提的需求現在怎樣' },
+    { command: 'queue', description: '我名下今天的排程' },
+    { command: 'cancel', description: '提到一半不提了' },
+    { command: 'help', description: '這幾個指令的說明' },
+];
+const BOT_HELP = '🤖 <b>接單看板 bot</b>\n\n'
+    + BOT_COMMANDS.map( c => `/${ c.command } — ${ c.description }` ).join( '\n' )
+    + '\n\n要改單、排順序、留言，還是請開網頁。';
+const BIND_HINT = '請從接單看板網頁點「訂閱通知」拿一組 6 碼，再送 <code>/bind 你的碼</code>。'
+    + '\n綁好之後就能在這裡提需求、查進度。';
+
+function whoOfChat( chatId ) {
+    for ( const sub of Object.values( auth.subscribers ) ) {
+        if ( sub.tgChatId === chatId && isMember( sub.memberId ) ) return sub.memberId;
+    }
+    return '';
+}
+
+async function handleUpdate( u ) {
+    if ( u.callback_query ) return onWizardButton( u.callback_query );
+    const msg = u.message;
+    if ( !msg || !msg.text || !msg.from || !msg.chat ) return;
+    // 只認私訊。群組裡喊綁定會把 chat id 存成群組，之後「私訊」會發到整群去。
+    if ( msg.chat.type !== 'private' ) return;
+    const text = msg.text.trim();
+    const chatId = msg.chat.id;
+    if ( !text ) return;   // 只打了空白 —— 不然 /new 的標題會收到空字串
+
+    const bind = text.match( /^\/(?:start|bind)(?:@\S+)?\s+([A-Za-z0-9]{6})$/ );
+    if ( bind ) {
+        const sub = completeBind( bind[ 1 ].toUpperCase(), msg.from, msg.chat );
+        return tgSend( sub
+            ? `✅ 訂閱完成，之後「${ esc( sub.label ) }」的需求有異動就會通知你。\n要取消請回網頁點「取消訂閱」。`
+                + '\n\n也可以直接在這裡提需求、查進度 —— 送 /help 看怎麼用。'
+            : '這組碼不對或已經過期了，回網頁重新產生一組。', chatId );
+    }
+
+    const who = whoOfChat( chatId );
+    if ( !who ) return tgSend( BIND_HINT, chatId );
+
+    const cmd = ( text.match( /^\/(\w+)(?:@\S+)?/ ) || [] )[ 1 ];
+    if ( cmd ) return onCommand( cmd, who, chatId );
+    const w = liveWizard( chatId );
+    if ( w ) return onWizardText( w, text );
+    return tgSend( BOT_HELP, chatId );
+}
+
+async function onCommand( cmd, who, chatId ) {
+    const today = ymdLocal( new Date() );
+    if ( cmd === 'new' ) return startWizard( who, chatId );
+    if ( cmd === 'cancel' ) {
+        if ( !liveWizard( chatId ) ) return tgSend( '目前沒有提到一半的需求。', chatId );
+        wizards.delete( chatId );
+        return tgSend( '已取消，沒有開單。', chatId );
+    }
+    if ( cmd === 'my' ) {
+        const since = new Date( Date.now() - 7 * 24 * 60 * 60 * 1000 ).toISOString();
+        const body = requestsText( who, projectAll(), today, since, '最近 7 天做完的' );
+        return tgSend( body || '你目前沒有提出中的需求（最近 7 天也沒有做完的）。要提就送 /new。', chatId );
+    }
+    if ( cmd === 'queue' ) {
+        if ( roleOf( who ) === 'director' ) return tgSend( '你是編導，名下不會有排程 —— 看你提的需求用 /my。', chatId );
+        return tgSend( queueText( who, projectAll(), today ) || '你名下目前沒有排程中的單。', chatId );
+    }
+    // /start（沒帶碼）、/help、打錯的指令都回說明
+    return tgSend( BOT_HELP, chatId );
+}
+
+// —— /new 一步一步問 ——
+// 進行到一半的狀態只放記憶體：重開服務就沒了（會叫他重新 /new），一份草稿不值得寫檔。
+const wizards = new Map();   // chatId -> { who, chatId, nonce, step, draft, opts, msgId, prompt, expiresAt }
+const WIZARD_TTL_MS = 30 * 60 * 1000;
+const WIZARD_STEPS = [ 'title', 'owner', 'project', 'detail', 'wish', 'confirm' ];
+const WIZARD_STEP_NAMES = [ '標題', '負責人', '專案', '說明', '時間' ];
+
+function liveWizard( chatId ) {
+    const w = wizards.get( chatId );
+    if ( !w ) return null;
+    if ( w.expiresAt < Date.now() ) {
+        wizards.delete( chatId );
+        return null;
+    }
+    return w;
+}
+
+function startWizard( who, chatId ) {
+    // ⭐ nonce 寫進每顆按鈕：舊的那一輪（或上一張單）的按鈕按下去要認得出來、不能算數
+    // reached：走到過最遠的那一題 —— 比它前面的就是「回頭改」，題目要顯示目前答案、給「沿用」
+    // editing：從確認頁點「✏️ 改某題」進來的，答完直接回確認頁
+    const w = { who, chatId, nonce: newCode( 4 ), step: 'title', reached: 0, editing: false, opts: [], msgId: 0, prompt: '',
+        draft: { title: '', owner: '', project: '', detail: '', wishDate: '', wishTime: '' } };
+    wizards.set( chatId, w );
+    return askStep( w );
+}
+
+// 最近開過的單用到的專案在前，再補 config 裡寫的
+function recentProjects() {
+    const seen = [];
+    const byNew = data.tasks.slice().sort( ( a, b ) => String( b.createdAt || '' ).localeCompare( String( a.createdAt || '' ) ) );
+    for ( const t of byNew ) if ( t.project && seen.indexOf( t.project ) < 0 ) seen.push( t.project );
+    for ( const p of config.projects ) if ( p && seen.indexOf( p ) < 0 ) seen.push( p );
+    return seen;
+}
+
+// 從今天開始的 n 個上班日（"YYYY-MM-DD"）
+function nextWorkdays( n ) {
+    const out = [];
+    const d = new Date();
+    d.setHours( 0, 0, 0, 0 );
+    while ( out.length < n ) {
+        if ( isWorkday( d ) ) out.push( ymdLocal( d ) );
+        d.setDate( d.getDate() + 1 );
+    }
+    return out;
+}
+
+function dayButtonLabel( date ) {
+    const today = new Date();
+    const tmr = new Date();
+    tmr.setDate( tmr.getDate() + 1 );
+    if ( date === ymdLocal( today ) ) return '今天';
+    if ( date === ymdLocal( tmr ) ) return '明天';
+    return `${ fmtDue( date ) }（${ WEEKDAY[ new Date( `${ date }T00:00:00` ).getDay() ] }）`;
+}
+
+function chunk( list, n ) {
+    const rows = [];
+    for ( let i = 0; i < list.length; i += n ) rows.push( list.slice( i, i + n ) );
+    return rows;
+}
+
+// 「10/15」「10/15 14:00」「2026-10-15」。看不懂回 null。
+function parseWish( text ) {
+    const m = text.match( /^(?:(\d{4})[-/.])?(\d{1,2})[-/.](\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?$/ );
+    if ( !m ) return null;
+    const now = new Date();
+    const mo = Number( m[ 2 ] );
+    const day = Number( m[ 3 ] );
+    const dt = new Date( m[ 1 ] ? Number( m[ 1 ] ) : now.getFullYear(), mo - 1, day );
+    // 2/30 這種 Date 會自己進位成 3/2 —— 進位了就是打錯
+    if ( dt.getMonth() !== mo - 1 || dt.getDate() !== day ) return null;
+    // 沒寫年份、而且已經過了 ⇒ 當成明年（12 月說「1/5」是指明年）
+    if ( !m[ 1 ] && ymdLocal( dt ) < ymdLocal( now ) ) dt.setFullYear( dt.getFullYear() + 1 );
+    const time = m[ 4 ] ? normTime( `${ m[ 4 ].padStart( 2, '0' ) }:${ m[ 5 ] }` ) : '';
+    if ( m[ 4 ] && !time ) return null;
+    return { date: ymdLocal( dt ), time };
+}
+
+function wizardSummary( d ) {
+    return `標題：<b>${ esc( d.title ) }</b>\n`
+        + `負責人：${ d.owner ? esc( memberName( d.owner ) ) : '還不確定（先進收件匣）' }\n`
+        + `專案：${ d.project ? esc( d.project ) : '—' }\n`
+        + `說明：${ d.detail ? esc( d.detail ) : '—' }\n`
+        + `希望完成：${ wishLabel( d.wishDate, d.wishTime ) }`;
+}
+
+// 回頭改時題目下面那行「目前：X」
+function wizardCurrent( w ) {
+    const d = w.draft;
+    if ( w.step === 'title' ) return d.title;
+    if ( w.step === 'owner' ) return d.owner ? memberName( d.owner ) : '還不確定找誰';
+    if ( w.step === 'project' ) return d.project || '（沒填）';
+    if ( w.step === 'detail' ) return d.detail ? ( d.detail.length > 30 ? d.detail.slice( 0, 30 ) + '…' : d.detail ) : '（沒填）';
+    return wishLabel( d.wishDate, d.wishTime );
+}
+
+async function askStep( w ) {
+    const btn = ( text, act ) => ( { text, callback_data: `nw:${ w.nonce }:${ act }` } );
+    const idx = WIZARD_STEPS.indexOf( w.step );
+    if ( idx > w.reached ) w.reached = idx;
+    const revisit = idx < w.reached;
+    const d = w.draft;
+    // 最後一列：退回 ＋ 取消。從確認頁進來改的，退回就是「回確認」（等於這題不改）
+    const nav = [ btn( '✖ 取消', 'c' ) ];
+    if ( w.editing ) nav.unshift( btn( '⬅️ 回確認', 'b' ) );
+    else if ( idx > 0 ) nav.unshift( btn( '⬅️ 上一步', 'b' ) );
+    // 必填題（標題、負責人）回頭時給「沿用」；改題模式下「回確認」就是沿用，不重複放
+    const keep = revisit && !w.editing ? [ [ btn( '沿用', 's' ) ] ] : [];
+    // 選填題：有值才給「清掉」；「跳過」本來就不動欄位，有值時改叫「沿用」
+    const optional = has => {
+        const row = w.editing ? [] : [ btn( has ? '沿用' : '跳過', 's' ) ];
+        if ( has ) row.push( btn( '清掉', 'x' ) );
+        return row.length ? [ row ] : [];
+    };
+    let text;
+    let rows;
+    if ( w.step === 'title' ) {
+        text = '📝 <b>提需求</b>（1/5）\n要做什麼？打一句話當標題。';
+        rows = keep.concat( [ nav ] );
+    } else if ( w.step === 'owner' ) {
+        w.opts = data.members.filter( m => isDev( m.id ) ).map( m => m.id );
+        text = '（2/5）<b>找誰做？</b>';
+        rows = chunk( w.opts.map( ( id, i ) => btn( memberName( id ), `o${ i }` ) ), 3 )
+            .concat( [ [ btn( '還不確定找誰', 'o-' ) ] ], keep, [ nav ] );
+    } else if ( w.step === 'project' ) {
+        w.opts = recentProjects().slice( 0, 8 );
+        text = '（3/5）<b>哪個專案？</b>按一個，或直接打新的名字。';
+        rows = chunk( w.opts.map( ( p, i ) => btn( p, `p${ i }` ) ), 2 ).concat( optional( !!d.project ), [ nav ] );
+    } else if ( w.step === 'detail' ) {
+        text = '（4/5）<b>補充說明？</b>直接打字；沒有就按跳過。';
+        rows = optional( !!d.detail ).concat( [ nav ] );
+    } else if ( w.step === 'wish' ) {
+        w.opts = nextWorkdays( 6 );
+        text = '（5/5）<b>希望什麼時候好？</b>按一個，或直接打 <code>10/15</code>、<code>10/15 14:00</code>。';
+        rows = chunk( w.opts.map( ( dt, i ) => btn( dayButtonLabel( dt ), `d${ i }` ) ), 3 ).concat( optional( !!d.wishDate ), [ nav ] );
+    } else {
+        text = `📋 <b>確認一下</b>\n\n${ wizardSummary( d ) }`;
+        const edits = WIZARD_STEP_NAMES.map( ( name, i ) => btn( `✏️ ${ name }`, `e${ i }` ) );
+        rows = [ [ btn( '✅ 送出', 'ok' ) ] ].concat( chunk( edits, 3 ),
+            [ [ btn( '⬅️ 上一步', 'b' ), btn( '↩️ 重來', 'redo' ), btn( '✖ 取消', 'c' ) ] ] );
+    }
+    if ( revisit && w.step !== 'confirm' ) text += `\n目前：<b>${ esc( wizardCurrent( w ) ) }</b>`;
+    w.prompt = text;
+    w.expiresAt = Date.now() + WIZARD_TTL_MS;
+    const r = await tgApi( 'sendMessage', { chat_id: w.chatId, text, parse_mode: 'HTML',
+        disable_web_page_preview: true, reply_markup: { inline_keyboard: rows } } );
+    // 送不出去（網路斷）就沒有 message_id —— 那一輪的按鈕本來就不存在，下面比對時自然不會過
+    w.msgId = r ? r.message_id : 0;
+}
+
+// 把上一題的按鈕收掉，並在題目下面補一行「→ 選了什麼」—— 不收的話，往上捲還按得到舊按鈕，
+// 而且對話裡看不出每一題答了什麼。
+async function closePrompt( w, answer ) {
+    if ( !w.msgId ) return;
+    await tgApi( 'editMessageText', { chat_id: w.chatId, message_id: w.msgId, parse_mode: 'HTML',
+        text: `${ w.prompt }\n→ <b>${ esc( answer ) }</b>` } );
+}
+
+async function nextStep( w, answer ) {
+    await closePrompt( w, answer );
+    w.step = w.editing ? 'confirm' : WIZARD_STEPS[ WIZARD_STEPS.indexOf( w.step ) + 1 ];
+    w.editing = false;
+    return askStep( w );
+}
+
+async function onWizardText( w, text ) {
+    const d = w.draft;
+    if ( w.step === 'title' ) {
+        d.title = text;
+        return nextStep( w, text );
+    }
+    if ( w.step === 'project' ) {
+        d.project = text;
+        return nextStep( w, text );
+    }
+    if ( w.step === 'detail' ) {
+        d.detail = text;
+        return nextStep( w, text.length > 30 ? text.slice( 0, 30 ) + '…' : text );
+    }
+    if ( w.step === 'wish' ) {
+        const p = parseWish( text );
+        if ( !p ) return tgSend( '看不懂這個日期。例如 <code>10/15</code> 或 <code>10/15 14:00</code>，或按上面的按鈕。', w.chatId );
+        d.wishDate = p.date;
+        d.wishTime = p.time;
+        return nextStep( w, wishLabel( p.date, p.time ) );
+    }
+    // owner 與 confirm 只收按鈕 —— 打字去猜人名，猜錯了就是開給錯的人
+    return tgSend( '這一步請按上面的按鈕（不想提了就送 /cancel）。', w.chatId );
+}
+
+async function onWizardButton( q ) {
+    const [ tag, nonce, act ] = String( q.data || '' ).split( ':' );
+    const chatId = q.message ? q.message.chat.id : 0;
+    const w = chatId ? liveWizard( chatId ) : null;
+    // 舊一輪的按鈕、已經答過的那一題、過期的、或綁定已經取消的 —— 都不算數
+    if ( tag !== 'nw' || !w || w.nonce !== nonce || q.message.message_id !== w.msgId || whoOfChat( chatId ) !== w.who ) {
+        return tgApi( 'answerCallbackQuery', { callback_query_id: q.id, text: '這個按鈕過期了，要提需求請重新送 /new' } );
+    }
+    await tgApi( 'answerCallbackQuery', { callback_query_id: q.id } );
+    const d = w.draft;
+    const pick = act.length > 1 ? w.opts[ Number( act.slice( 1 ) ) ] : undefined;
+
+    if ( act === 'c' ) {
+        await closePrompt( w, '取消' );
+        wizards.delete( chatId );
+        return tgSend( '已取消，沒有開單。', chatId );
+    }
+    if ( act === 's' ) {
+        // 跟 askStep 上那顆的字一致：必填題只有回頭時才有這顆（＝沿用）；選填題有值叫沿用、沒值叫跳過
+        const kept = w.step === 'title' || w.step === 'owner' || d[ w.step === 'wish' ? 'wishDate' : w.step ];
+        return nextStep( w, kept ? '沿用' : '跳過' );
+    }
+    if ( act === 'x' ) {
+        if ( w.step === 'wish' ) {
+            d.wishDate = '';
+            d.wishTime = '';
+        } else {
+            d[ w.step ] = '';
+        }
+        return nextStep( w, '清掉' );
+    }
+    if ( act === 'b' ) {
+        await closePrompt( w, w.editing ? '回確認' : '上一步' );
+        w.step = w.editing ? 'confirm' : WIZARD_STEPS[ WIZARD_STEPS.indexOf( w.step ) - 1 ];
+        w.editing = false;
+        return askStep( w );
+    }
+    if ( act[ 0 ] === 'e' && w.step === 'confirm' ) {
+        const i = Number( act.slice( 1 ) );
+        await closePrompt( w, `改${ WIZARD_STEP_NAMES[ i ] }` );
+        w.editing = true;
+        w.step = WIZARD_STEPS[ i ];
+        return askStep( w );
+    }
+    if ( act === 'o-' ) {
+        d.owner = '';
+        return nextStep( w, '還不確定找誰' );
+    }
+    if ( act[ 0 ] === 'o' && w.step === 'owner' && pick ) {
+        d.owner = pick;
+        return nextStep( w, memberName( pick ) );
+    }
+    if ( act[ 0 ] === 'p' && w.step === 'project' && pick ) {
+        d.project = pick;
+        return nextStep( w, pick );
+    }
+    if ( act[ 0 ] === 'd' && w.step === 'wish' && pick ) {
+        d.wishDate = pick;
+        d.wishTime = '';
+        return nextStep( w, wishLabel( pick, '' ) );
+    }
+    if ( act === 'redo' ) {
+        await closePrompt( w, '重來' );
+        return startWizard( w.who, chatId );
+    }
+    if ( act === 'ok' && w.step === 'confirm' ) {
+        // 問到一半名冊可能變了（那個人被改成編導、被移除）—— 照網頁的規則擋，退回無主
+        const lost = d.owner && !isDev( d.owner );
+        if ( lost ) d.owner = '';
+        await closePrompt( w, '送出' );
+        wizards.delete( chatId );
+        const task = createTask( w.who, d );
+        return tgSend( `✅ <b>開好了</b>\n\n${ wizardSummary( task ) }`
+            + ( lost ? '\n\n⚠️ 你選的負責人已經不接單了，這張先進收件匣。' : '' )
+            + '\n\n之後要查進度送 /my。', chatId );
     }
 }
 
@@ -1321,6 +1663,58 @@ function newId() {
 
 function nowISO() { return new Date().toISOString(); }
 
+// 網頁「專案」下拉的候選：config 裡寫的 ＋ 用過的。
+// TG 的 /new 要「最近用過的在前」，用的是 recentProjects，不是這支。
+function projectCandidates() {
+    const seen = [];
+    for ( const p of config.projects ) if ( p && seen.indexOf( p ) < 0 ) seen.push( p );
+    for ( const t of data.tasks ) if ( t.project && seen.indexOf( t.project ) < 0 ) seen.push( t.project );
+    return seen;
+}
+
+// 開一張新單。網頁（POST /api/tasks）跟 TG 的 /new 都走這支 ——
+// ⛔ 不要各拼一份：欄位一多就會有一邊漏掉，漏的那邊要到很後面才炸（例如 wishLog 沒初始化）。
+// who ＝ 提出者（登入／綁定的帳號 id）。title 與 owner 由呼叫端驗過（owner 空字串＝無主）。
+function createTask( who, b ) {
+    const maxOrder = data.tasks.reduce( ( m, t ) => Math.max( m, t.order ), 0 );
+    const task = {
+        id: newId(),
+        title: b.title,
+        detail: String( b.detail || '' ).trim(),
+        project: String( b.project || '' ).trim(),
+        // requesterId 才是真的身分；requester 是當下的顯示名稱快照，
+        // 留著是為了 v4 之前那些對不上帳號的舊單還看得懂是誰提的。
+        requesterId: who,
+        requester: memberName( who ),
+        owner: b.owner,   // 誰做的；requester 是誰提的，兩回事。空字串＝還沒指定
+
+        wishDate: normDate( b.wishDate ),   // 編導希望的完成日 YYYY-MM-DD，可空
+        wishTime: normTime( b.wishTime ),   // 再細一點的時刻 HH:MM，可空
+        status: 'inbox',
+        order: maxOrder + 10,
+        estimate: null,   // 我估的工時 (h)。改成已排程時會被換成「剩餘」，見 §3
+        estimate0: null,  // 最初估的那個數字，之後只拿來對照，不參與排程
+        spentMin: 0,      // 累計已經做掉幾分鐘（進行中切走時累加）
+        startedAt: '',    // 這一輪是什麼時候進「進行中」的
+        spans: [],        // 今天做到幾點的區間 [ { from, to, min } ]，被插件時補一筆
+        due: '',          // 我排的預計完成日 YYYY-MM-DD
+        note: '',         // 我回給編導的備註
+        comments: [],
+        // 開單時填的那個「希望完成」不算異動 ⇒ 這裡是空的，第一次「改」才會有東西
+        wishLog: [],
+        createdAt: nowISO(),
+        updatedAt: nowISO(),
+        doneAt: '',
+    };
+    data.tasks.push( task );
+    saveData();
+    refreshProjection();   // 新單進 inbox 不影響排程，但估時/狀態可能是帶進來的
+    // ⭐ 第二個參數是「誰動的」：自己開單給自己就不用再私訊自己一次（forcedFor）。
+    queueNew( task, who );   // 訂了對應範圍的人（含無主收件匣）、以及被指派的本人會收到
+    console.log( `[new] ${ task.id } ${ task.title }（${ task.requester }）${ b.owner ? '' : '・無主' }` );
+    return task;
+}
+
 function findTask( id ) {
     return data.tasks.find( t => t.id === id );
 }
@@ -1626,15 +2020,12 @@ async function handleApi( req, res, urlPath, query ) {
 
     // 目前使用者身分 + 專案候選清單
     if ( urlPath === '/api/meta' && method === 'GET' ) {
-        const seen = [];
-        for ( const p of config.projects ) if ( p && seen.indexOf( p ) < 0 ) seen.push( p );
-        for ( const t of data.tasks ) if ( t.project && seen.indexOf( t.project ) < 0 ) seen.push( t.project );
         const s = session( req );
         return send( res, 200, {
             admin: !!s,                    // 有沒有「某些東西」可以編輯
             fullAdmin: !!s && s.admin,     // 能不能改所有人的、推播
             who: s ? s.who : null,
-            projects: seen.sort(),
+            projects: projectCandidates().sort(),
             myRole: s && s.who ? roleOf( s.who ) : null,
             members: data.members.map( m => {
                 const one = { id: m.id, name: m.name, admin: !!m.admin,
@@ -1711,43 +2102,8 @@ async function handleApi( req, res, urlPath, query ) {
         // 有帶 owner 欄位但值是空的＝提的人自己也不知道該找誰，丟進無主收件匣。
         // 沒帶這個欄位（舊的前端、直接打 API）才落到預設那個人。
         const owner = 'owner' in b ? String( b.owner || '' ) : defaultOwner();
-
-        const maxOrder = data.tasks.reduce( ( m, t ) => Math.max( m, t.order ), 0 );
-        const task = {
-            id: newId(),
-            title,
-            detail: String( b.detail || '' ).trim(),
-            project: String( b.project || '' ).trim(),
-            // requesterId 才是真的身分；requester 是當下的顯示名稱快照，
-            // 留著是為了 v4 之前那些對不上帳號的舊單還看得懂是誰提的。
-            requesterId: s.who,
-            requester: memberName( s.who ),
-            owner,            // 誰做的；requester 是誰提的，兩回事。空字串＝還沒指定
-
-            wishDate: normDate( b.wishDate ),   // 編導希望的完成日 YYYY-MM-DD，可空
-            wishTime: normTime( b.wishTime ),   // 再細一點的時刻 HH:MM，可空
-            status: 'inbox',
-            order: maxOrder + 10,
-            estimate: null,   // 我估的工時 (h)。改成已排程時會被換成「剩餘」，見 §3
-            estimate0: null,  // 最初估的那個數字，之後只拿來對照，不參與排程
-            spentMin: 0,      // 累計已經做掉幾分鐘（進行中切走時累加）
-            startedAt: '',    // 這一輪是什麼時候進「進行中」的
-            spans: [],        // 今天做到幾點的區間 [ { from, to, min } ]，被插件時補一筆
-            due: '',          // 我排的預計完成日 YYYY-MM-DD
-            note: '',         // 我回給編導的備註
-            comments: [],
-            // 開單時填的那個「希望完成」不算異動 ⇒ 這裡是空的，第一次「改」才會有東西
-            wishLog: [],
-            createdAt: nowISO(),
-            updatedAt: nowISO(),
-            doneAt: '',
-        };
-        data.tasks.push( task );
-        saveData();
-        refreshProjection();   // 新單進 inbox 不影響排程，但估時/狀態可能是帶進來的
-        // ⭐ 第二個參數是「誰動的」：自己開單給自己就不用再私訊自己一次（forcedFor）。
-        queueNew( task, s.who );   // 訂了對應範圍的人（含無主收件匣）、以及被指派的本人會收到
-        console.log( `[new] ${ task.id } ${ task.title }（${ task.requester }）${ owner ? '' : '・無主' }` );
+        const task = createTask( s.who, { title, owner, detail: b.detail, project: b.project,
+            wishDate: b.wishDate, wishTime: b.wishTime } );
         return send( res, 200, { task } );
     }
 

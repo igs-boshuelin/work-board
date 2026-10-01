@@ -2132,7 +2132,7 @@ function openCatchUpModal( date, items ) {
 
 // 改了 index.html 裡那份「🆕 最近更新」就把這個字串換掉 —— 它只是用來讓「說明」
 // 按鈕上的紅點重新亮起來，每個人各自看過各自的（存在他自己的瀏覽器裡，不進伺服器）。
-const HELP_VERSION = '2026-10-01';
+const HELP_VERSION = '2026-10-01b';
 
 function syncHelpDot() {
     $( '#help-dot' ).classList.toggle( 'hidden', store.helpSeen === HELP_VERSION );
