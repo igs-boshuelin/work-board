@@ -1205,6 +1205,113 @@ function checkDueSoon() {
     if ( hit ) saveData();
 }
 
+// ── 每天早上的私訊 ───────────────────────────────────────────────────────────
+
+// 2026-10-01 加的。工程師收到「今天的佇列」，編導收到「我提的需求現在怎樣」。
+// ⛔ 只私訊、不碰群組 —— 群組還是測試群；而且每個人該看的東西不一樣，彙整成一則沒人會看。
+// ⚠️ 只有綁過 TG 的人收得到（沒有送達位址，見 forcedFor 上面那段）。
+// 設定：config.json 的 morningPush，"09:00" 這種格式；false 關掉；沒寫就是 09:00。
+const MORNING_MIN = ( () => {
+    if ( config.morningPush === false ) return null;
+    return hhmmToMin( config.morningPush === undefined ? '09:00' : config.morningPush, 'morningPush' );
+} )();
+// 服務在推播時間沒開著的話，開起來之後還會補發 —— 但只補這麼久。
+// 下午才開機收到「早安」比沒收到更怪。
+const MORNING_GRACE_MIN = 120;
+const WEEKDAY = '日一二三四五六';
+
+function hhmm( min ) {
+    return `${ String( Math.floor( min / 60 ) ).padStart( 2, '0' ) }:${ String( min % 60 ).padStart( 2, '0' ) }`;
+}
+
+// 推估完成時刻給人看的寫法：今天的只講幾點，之後的講日期
+function endLabel( end, today ) {
+    if ( !end ) return '（沒估時，推不出來）';
+    return end.date === today ? `預計 <b>${ hhmm( end.min ) }</b> 做完` : `預計 ${ fmtDue( end.date ) }`;
+}
+
+// 早上私訊與 TG 的 /queue 共用
+function queueText( who, ends, today ) {
+    const queue = [];
+    for ( const st of [ 'doing', 'todo' ] ) {
+        queue.push( ...data.tasks
+            .filter( t => t.owner === who && t.status === st )
+            .sort( ( a, b ) => a.order - b.order ) );
+    }
+    if ( !queue.length ) return null;
+
+    const doneToday = queue.filter( t => ends.has( t.id ) && ends.get( t.id ).date === today ).length;
+    const lines = queue.slice( 0, 10 ).map( t => {
+        const proj = t.project ? `[${ esc( t.project ) }] ` : '';
+        const est = t.estimate ? `（${ fmtHours( t.estimate ) }）` : '';
+        return `${ STATUS_ICON[ t.status ] } ${ proj }<b>${ esc( t.title ) }</b>${ est }\n  ${ endLabel( ends.get( t.id ), today ) }`;
+    } );
+    if ( queue.length > 10 ) lines.push( `… 另外 ${ queue.length - 10 } 項` );
+    const head = doneToday ? `排了 ${ queue.length } 項，今天預計做完 ${ doneToday } 項` : `排了 ${ queue.length } 項`;
+    return `${ head }\n\n${ lines.join( '\n' ) }`;
+}
+
+// 早上私訊與 TG 的 /my 共用。since 之後做完的單也講一下，不然編導只看得到「還沒好的」——
+// 早上私訊傳「上一次推播的時刻」，/my 傳 7 天前；doneLabel 是那一段的標題。
+function requestsText( who, ends, today, since, doneLabel ) {
+    const mine = data.tasks.filter( t => t.requesterId === who );
+    const doneNew = mine.filter( t => t.status === 'done' && t.doneAt && t.doneAt >= since );
+    const open = mine.filter( t => t.status !== 'done' );
+    if ( !open.length && !doneNew.length ) return null;
+
+    const lines = [];
+    for ( const st of [ 'doing', 'todo', 'inbox', 'parked' ] ) {
+        for ( const t of open.filter( x => x.status === st ) ) {
+            const proj = t.project ? `[${ esc( t.project ) }] ` : '';
+            const who2 = t.owner ? esc( memberName( t.owner ) ) : '⚠️ 還沒指定負責人';
+            const when = st === 'doing' || st === 'todo' ? `；${ endLabel( ends.get( t.id ), today ) }` : '';
+            lines.push( `${ STATUS_ICON[ st ] } ${ proj }<b>${ esc( t.title ) }</b>\n  ${ STATUS_LABEL[ st ] }・${ who2 }${ when }` );
+        }
+    }
+    if ( lines.length > 12 ) lines.splice( 12, lines.length - 12, `… 另外 ${ lines.length - 12 } 項` );
+    if ( doneNew.length ) {
+        lines.push( '', `✅ <b>${ doneLabel }</b>（${ doneNew.length }）` );
+        for ( const t of doneNew ) lines.push( `  • ${ t.project ? `[${ esc( t.project ) }] ` : '' }${ esc( t.title ) }` );
+    }
+    const head = open.length ? `你提的需求還有 ${ open.length } 項在跑` : '你提的需求都做完了';
+    return `${ head }\n\n${ lines.join( '\n' ) }`;
+}
+
+// 每分鐘看一次。⭐ 「今天發過了」記在 data.morningSent（日期）—— 存在檔案裡，
+// 推播時間之後重開服務不會再發一次。
+function checkMorning() {
+    if ( MORNING_MIN === null ) return;
+    const now = new Date();
+    const today = ymdLocal( now );
+    if ( data.morningSent === today ) return;
+    if ( !isWorkday( now ) ) return;
+    const m = now.getHours() * 60 + now.getMinutes();
+    if ( m < MORNING_MIN || m >= MORNING_MIN + MORNING_GRACE_MIN ) return;
+
+    // 上次推播的時刻：沒有記錄（第一次）就當成 24 小時前
+    const since = data.morningSent
+        ? keyToDate( `${ data.morningSent }T${ hhmm( MORNING_MIN ) }` ).toISOString()
+        : new Date( now - 24 * 60 * 60 * 1000 ).toISOString();
+    // ⛔ 先記下來再發 —— tgSend 是非同步的，倒過來的話下一分鐘可能又進來發一輪
+    data.morningSent = today;
+    saveData();
+
+    const ends = projectAll();
+    const title = `☀️ <b>早安</b>　${ fmtDue( today ) }（週${ WEEKDAY[ now.getDay() ] }）`;
+    let n = 0;
+    for ( const sub of Object.values( auth.subscribers ) ) {
+        if ( !sub.tgChatId || !isMember( sub.memberId ) ) continue;
+        const body = roleOf( sub.memberId ) === 'director'
+            ? requestsText( sub.memberId, ends, today, since, '上次之後做完的' )
+            : queueText( sub.memberId, ends, today );
+        // 沒東西可講就不發 —— 每天收一則「今天沒事」只會讓人把 bot 靜音
+        if ( !body ) continue;
+        tgSend( `${ title }\n${ body }`, sub.tgChatId );
+        n++;
+    }
+    console.log( `[morning] ${ today } 早上推播 ${ n } 人` );
+}
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 function newId() {
@@ -2286,6 +2393,7 @@ setInterval( backupData, 6 * 60 * 60 * 1000 );
 // 「快到預計完成時間」每分鐘掃一次。⚠️ 一分鐘是提醒的解析度 ——
 // 拉長的話「前 30 分鐘」會變成「前 30±n 分鐘」。⛔ 不要用它來代替 refreshProjection。
 setInterval( checkDueSoon, 60 * 1000 );
+setInterval( checkMorning, 60 * 1000 );
 
 server.listen( config.port, '0.0.0.0', () => {
     console.log( '────────────────────────────────────' );
@@ -2293,8 +2401,9 @@ server.listen( config.port, '0.0.0.0', () => {
     console.log( `   本機   http://localhost:${ config.port }` );
     for ( const ip of localIPs() ) console.log( `   內網   http://${ ip }:${ config.port }` );
     console.log( ` TG 推播 ${ config.telegram.enabled ? '已啟用' : '未啟用（改 config.json）' }` );
-    console.log( ` 群組彙整 ${ config.telegram.notifyGroup ? '開' : '關（只走個人訂閱；📣 手動推播不受影響）' }` );
+    console.log( ` 群組彙整 ${ config.telegram.notifyGroup ? '開' : '關（只走個人訂閱）' }` );
     console.log( ` 訂閱中 ${ Object.keys( auth.subscribers ).length } 人` );
+    console.log( ` 早上私訊 ${ MORNING_MIN === null ? '關' : `${ hhmm( MORNING_MIN ) }（上班日）` }` );
     if ( config.adminPassword === 'CHANGE-ME' ) console.log( ' ⚠  admin 密碼還是預設值，去 config.json 改掉' );
     console.log( '────────────────────────────────────' );
     // 綁定用的 long polling。掛在 listen 之後，網頁不會因為 TG 連不上而起不來。
